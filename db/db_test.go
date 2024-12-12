@@ -16,8 +16,8 @@ func TestAccessDB(t *testing.T) {
 	defer db.Close()
 	defer os.RemoveAll("testdb1")
 
-	db.Put(LastHandledHeightStoreKey(), big.NewInt(12561332).Bytes(), nil)
-	bz, _ := db.Get(LastHandledHeightStoreKey(), nil)
+	db.Put(LatestHandledHeightStoreKey(), big.NewInt(12561332).Bytes(), nil)
+	bz, _ := db.Get(LatestHandledHeightStoreKey(), nil)
 	height := big.NewInt(0).SetBytes(bz)
 	require.EqualValues(t, 12561332, height.Uint64())
 

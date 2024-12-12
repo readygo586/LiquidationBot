@@ -687,7 +687,7 @@ func (s *Syncer) SearchNewBorrowerLoop() {
 				continue
 			}
 
-			bz, err := db.Get(dbm.LastHandledHeightStoreKey(), nil)
+			bz, err := db.Get(dbm.LatestHandledHeightStoreKey(), nil)
 			if err != nil {
 				t.Reset(time.Millisecond * 20)
 				continue
@@ -731,7 +731,7 @@ func (s *Syncer) SearchNewBorrowerLoop() {
 				}
 			}
 
-			err = db.Put(dbm.LastHandledHeightStoreKey(), big.NewInt(int64(endHeight)).Bytes(), nil)
+			err = db.Put(dbm.LatestHandledHeightStoreKey(), big.NewInt(int64(endHeight)).Bytes(), nil)
 			if err != nil {
 				goto EndWithoutUpdateHeight
 			}
@@ -790,7 +790,7 @@ func (s *Syncer) MonitorLiquidationEventLoop() {
 		panic(err)
 	}
 
-	bz, err := db.Get(dbm.LastHandledHeightStoreKey(), nil)
+	bz, err := db.Get(dbm.LatestHandledHeightStoreKey(), nil)
 	if err != nil {
 		panic(err)
 	}
@@ -934,7 +934,7 @@ func (s *Syncer) PrintConcernedAccountInfoLoop() {
 	}
 }
 
-//only for tests
+// only for tests
 func (s *Syncer) syncAccounts(accounts []common.Address) {
 	var wg sync.WaitGroup
 	wg.Add(len(accounts))
@@ -1856,7 +1856,7 @@ func (s *Syncer) deleteAccount(account common.Address) {
 		maxLoanValue := info.MaxLoanValue
 
 		for _, asset := range assets {
-			db.Delete(dbm.MarketStoreKey([]byte(asset.Symbol), accountBytes), nil)
+			db.Delete(dbm.MarketMemberStoreKey([]byte(asset.Symbol), accountBytes), nil)
 		}
 
 		if maxLoanValue.Cmp(MaxLoanValueThreshold) == -1 {
@@ -1886,7 +1886,7 @@ func (s *Syncer) storeAccount(account common.Address, info AccountInfo) {
 	maxLoanValue := info.MaxLoanValue
 
 	for _, asset := range info.Assets {
-		db.Put(dbm.MarketStoreKey([]byte(asset.Symbol), accountBytes), accountBytes, nil)
+		db.Put(dbm.MarketMemberStoreKey([]byte(asset.Symbol), accountBytes), accountBytes, nil)
 	}
 
 	if maxLoanValue.Cmp(MaxLoanValueThreshold) == -1 {

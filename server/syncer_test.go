@@ -268,11 +268,11 @@ func TestStoreAndDeleteAccount(t *testing.T) {
 	require.Equal(t, bz, account.Bytes())
 
 	for _, asset := range assets {
-		has, err = db.Has(dbm.MarketStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
+		has, err = db.Has(dbm.MarketMemberStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
 		require.NoError(t, err)
 		require.True(t, has)
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
 		require.NoError(t, err)
 		require.Equal(t, bz, account.Bytes())
 
@@ -287,7 +287,7 @@ func TestStoreAndDeleteAccount(t *testing.T) {
 		require.Equal(t, 1, len(accounts))
 	}
 
-	had, err := db.Has(dbm.MarketStoreKey([]byte("vETH"), account.Bytes()), nil)
+	had, err := db.Has(dbm.MarketMemberStoreKey([]byte("vETH"), account.Bytes()), nil)
 	require.NoError(t, err)
 	require.False(t, had)
 
@@ -387,16 +387,16 @@ func TestStoreAndDeleteAccount1(t *testing.T) {
 	require.Equal(t, bz, account.Bytes())
 
 	for _, asset := range assets {
-		has, err = db.Has(dbm.MarketStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
+		has, err = db.Has(dbm.MarketMemberStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
 		require.NoError(t, err)
 		require.True(t, has)
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
 		require.NoError(t, err)
 		require.Equal(t, bz, account.Bytes())
 	}
 
-	had, err := db.Has(dbm.MarketStoreKey([]byte("vETH"), account.Bytes()), nil)
+	had, err := db.Has(dbm.MarketMemberStoreKey([]byte("vETH"), account.Bytes()), nil)
 	require.NoError(t, err)
 	require.False(t, had)
 
@@ -435,11 +435,11 @@ func TestStoreAndDeleteAccount1(t *testing.T) {
 
 	for _, asset := range assets {
 		//logger.Printf("symbol:%v\n", asset.Symbol)
-		has, err = db.Has(dbm.MarketStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
+		has, err = db.Has(dbm.MarketMemberStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
 		require.NoError(t, err)
 		require.True(t, has)
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(asset.Symbol), account.Bytes()), nil)
 		require.NoError(t, err)
 		require.Equal(t, bz, account.Bytes())
 	}
@@ -519,7 +519,7 @@ func TestSyncOneAccount(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 
@@ -578,7 +578,7 @@ func TestSyncOneAccount1(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 
@@ -637,7 +637,7 @@ func TestSyncOneAccount2(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 
@@ -696,7 +696,7 @@ func TestSyncOneAccount3(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 
@@ -769,7 +769,7 @@ func TestSyncAccounts(t *testing.T) {
 
 		for _, asset := range info.Assets {
 			symbol := asset.Symbol
-			bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+			bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 			require.NoError(t, err)
 			require.Equal(t, account, common.BytesToAddress(bz))
 			symbolCount[symbol]++
@@ -831,7 +831,7 @@ func TestSyncOneAccountWithIncreaseAccountNumber(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 
@@ -915,7 +915,7 @@ func TestSyncOneAccountWithIncreaseAccountNumber1(t *testing.T) {
 
 		for _, asset := range info.Assets {
 			symbol := asset.Symbol
-			bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+			bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 			require.NoError(t, err)
 			require.Equal(t, account, common.BytesToAddress(bz))
 			symbolCount[symbol]++
@@ -973,7 +973,7 @@ func TestSyncOneAccountWithFeededPrice(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 
@@ -1057,7 +1057,7 @@ func TestSyncOneAccountWithFeededPrice1(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 
@@ -1141,7 +1141,7 @@ func TestProcessFeedPrices(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 
@@ -1229,7 +1229,7 @@ func TestProcessFeedPrice1(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 
@@ -1324,7 +1324,7 @@ func TestTestProcessFeedPriceVibrationExceed5Percent(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 
@@ -1406,7 +1406,7 @@ func TestSyncAccountLoopWithFeedPrice(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 
@@ -1497,7 +1497,7 @@ func TestSyncAccountLoopWithBackgroundSync(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 

@@ -11,6 +11,6 @@ func TestConfig(t *testing.T) {
 	logger.Printf("db:%+v\n", config.DB)
 	logger.Printf("comptroller:%+v\n", config.Comptroller)
 	logger.Printf("override:%v\n", config.Override)
-	logger.Printf("StartHeight:%v\n", config.StartHeihgt)
+	logger.Printf("StartHeight:%v\n", config.StartHeight)
 	logger.Printf("PrivateKey:%v\n", config.PrivateKey)
 }
