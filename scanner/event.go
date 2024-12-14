@@ -80,8 +80,8 @@ func decodeMarketListed(log types.Log) (*common.Address, error) {
 	if topics[0].Hex() != MarketListed || len(topics) != 1 {
 		return nil, fmt.Errorf("invalid topic")
 	}
-	address := common.BytesToAddress(data[0:32])
-	return &address, nil
+	market := common.BytesToAddress(data[0:32])
+	return &market, nil
 }
 
 func decodeNewCloseFactor(log types.Log) (*big.Int, error) {
@@ -94,6 +94,7 @@ func decodeNewCloseFactor(log types.Log) (*big.Int, error) {
 	closeFaFactor := big.NewInt(0).SetBytes(data[32:64])
 	return closeFaFactor, nil
 }
+
 func decodeNewCollateralFactor(log types.Log) (*common.Address, *big.Int, error) {
 	topics := log.Topics
 	data := log.Data
@@ -102,9 +103,9 @@ func decodeNewCollateralFactor(log types.Log) (*common.Address, *big.Int, error)
 		return nil, nil, fmt.Errorf("invalid topic")
 	}
 
-	address := common.BytesToAddress(data[0:32])
+	market := common.BytesToAddress(data[0:32])
 	collateralFactor := big.NewInt(0).SetBytes(data[64:96])
-	return &address, collateralFactor, nil
+	return &market, collateralFactor, nil
 }
 
 func decodeMarketEntered(log types.Log) (*common.Address, *common.Address, error) {
@@ -115,9 +116,9 @@ func decodeMarketEntered(log types.Log) (*common.Address, *common.Address, error
 		return nil, nil, fmt.Errorf("invalid topic")
 	}
 
-	address := common.BytesToAddress(data[0:32])
+	market := common.BytesToAddress(data[0:32])
 	account := common.BytesToAddress(data[32:64])
-	return &address, &account, nil
+	return &market, &account, nil
 }
 
 func decodeMarketExited(log types.Log) (*common.Address, *common.Address, error) {
@@ -128,9 +129,9 @@ func decodeMarketExited(log types.Log) (*common.Address, *common.Address, error)
 		return nil, nil, fmt.Errorf("invalid topic")
 	}
 
-	address := common.BytesToAddress(data[0:32])
+	market := common.BytesToAddress(data[0:32])
 	account := common.BytesToAddress(data[32:64])
-	return &address, &account, nil
+	return &market, &account, nil
 
 }
 
@@ -290,8 +291,28 @@ func (s *Scanner) DecodeLog(log types.Log) error {
 		}
 		collateralFactor := decimal.NewFromBigInt(_collateralFactor, 0)
 		s.collateralFactorChangedCh <- &CollateralFactorChanged{
-			Address:          *market,
+			Market:           *market,
 			CollateralFactor: collateralFactor,
+		}
+
+	case MarketEntered:
+		account, market, err := decodeMarketEntered(log)
+		if err != nil {
+			return err
+		}
+		s.enterMarketCh <- &EnterMarket{
+			Market:  *market,
+			Account: *account,
+		}
+
+	case MarketExited:
+		account, market, err := decodeMarketExited(log)
+		if err != nil {
+			return err
+		}
+		s.exitMarketCh <- &ExitMarket{
+			Market:  *market,
+			Account: *account,
 		}
 
 	case MintVAI:
@@ -321,10 +342,10 @@ func (s *Scanner) DecodeLog(log types.Log) error {
 			return err
 		}
 		s.vTokenAmountChangedCh <- &VTokenAmountChanged{
-			Address: log.Address,
-			From:    *from,
-			To:      *to,
-			Amount:  decimal.NewFromBigInt(amount, 0),
+			Market: log.Address,
+			From:   *from,
+			To:     *to,
+			Amount: decimal.NewFromBigInt(amount, 0),
 		}
 
 	case PriceUpdate:

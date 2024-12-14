@@ -14,6 +14,8 @@ type Config struct {
 	Vai           string `yaml:"vai"`
 	WBTC          string `yaml:"wbtc"`
 	WETH          string `yaml:"weth"`
+	vBNB          string `yaml:"vbnb"`
+	WBNB          string `yaml:"wbnb"`
 	PrivateKey    string `yaml:"private_key"`
 	DB            string `yaml:"db"`
 	StartHeight   uint64 `yaml:"start_height"`

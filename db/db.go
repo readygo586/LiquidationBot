@@ -11,10 +11,12 @@ type Hash [HashLength]byte
 
 var (
 	KeyLatestHandledHeight     = []byte("latest_handled_height")
+	KeyCloseFactor             = []byte("close_factor")
 	KeyBorrowerNumber          = []byte("number_of_borrowers")
 	BorrowersPrefix            = []byte("borrowers") //prefix with all borrowers
 	PricesPrefix               = []byte("prices")
 	AccountPrefix              = []byte("account")
+	MarketPrefix               = []byte("market")
 	MarketMemberPrefix         = []byte("market_member")
 	JoinedMarketPrefix         = []byte("joined_market")
 	LiquidationBelow1P0Prefix  = []byte("liquidation_below_1p0")
@@ -45,11 +47,11 @@ func JoinedMarketMemberStoreKey(account []byte, address []byte) []byte {
 	return append(bz, address...)
 }
 
-func SupportMarketMemberStoreKey(address []byte) []byte {
-	return append(SupportMarketPrefix, address...)
+func MarketStoreKey(market []byte) []byte {
+	return append(MarketPrefix, market...)
 }
-func MarketMemberStoreKey(address []byte, account []byte) []byte {
-	bz := append(MarketMemberPrefix, address...)
+func MarketMemberStoreKey(market []byte, account []byte) []byte {
+	bz := append(MarketMemberPrefix, market...)
 	return append(bz, account...)
 }
 

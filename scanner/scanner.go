@@ -6,10 +6,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/readygo586/LiquidationBot/db"
 	"github.com/readygo586/LiquidationBot/venus"
-	"github.com/readygo67/LiquidationBot/db"
 	"github.com/shopspring/decimal"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
 	"log"
 	"math/big"
 	"os"
@@ -23,7 +24,7 @@ type semaphore chan struct{}
 
 type TokenInfo struct {
 	Symbol             string
-	Address            common.Address
+	Market             common.Address
 	UnderlyingAddress  common.Address
 	UnderlyingDecimals uint8
 	CollateralFactor   decimal.Decimal
@@ -35,14 +36,24 @@ type TokenPrice struct {
 }
 
 type PriceChanged struct {
-	Address common.Address
-	Price   decimal.Decimal
-	Height  uint64
+	Market common.Address
+	Price  decimal.Decimal
+	Height uint64
 }
 
 type CollateralFactorChanged struct {
-	Address          common.Address
+	Market           common.Address
 	CollateralFactor decimal.Decimal
+}
+
+type EnterMarket struct {
+	Market  common.Address
+	Account common.Address
+}
+
+type ExitMarket struct {
+	Market  common.Address
+	Account common.Address
 }
 
 type RepayVaiAmountChanged struct {
@@ -51,10 +62,10 @@ type RepayVaiAmountChanged struct {
 }
 
 type VTokenAmountChanged struct {
-	Address common.Address
-	From    common.Address
-	To      common.Address
-	Amount  decimal.Decimal
+	Market common.Address
+	From   common.Address
+	To     common.Address
+	Amount decimal.Decimal
 }
 
 type Scanner struct {
@@ -87,9 +98,16 @@ type Scanner struct {
 	newMarketCh               chan common.Address
 	closeFactorChangedCh      chan decimal.Decimal
 	collateralFactorChangedCh chan *CollateralFactorChanged
+	enterMarketCh             chan *EnterMarket
+	exitMarketCh              chan *ExitMarket
 	repayVaiAmountChangedCh   chan *RepayVaiAmountChanged
 	vTokenAmountChangedCh     chan *VTokenAmountChanged //collateralAmount change, including mint, redeem, transfer
 	priceChangedCh            chan *PriceChanged
+
+	topAccountSyncCh    chan common.Address
+	highAccountSyncCh   chan common.Address
+	middleAccountSyncCh chan common.Address
+	lowAccountSyncCh    chan common.Address
 
 	//liquidationCh             chan *Liquidation
 	//priortyLiquidationCh      chan *Liquidation
@@ -120,7 +138,7 @@ func NewScanner(
 	_privateKey string,
 ) *Scanner {
 
-	exist, err := db.Has(dbm.BorrowerNumberKey(), nil)
+	exist, _ := db.Has(dbm.BorrowerNumberKey(), nil)
 	if !exist {
 		db.Put(dbm.BorrowerNumberKey(), big.NewInt(0).Bytes(), nil)
 	}
@@ -217,7 +235,7 @@ func NewScanner(
 
 		tokens[common.HexToAddress(_vai)] = &TokenInfo{
 			Symbol:             vaiSymbol,
-			Address:            common.HexToAddress(_vaiController),
+			Market:             common.HexToAddress(_vaiController),
 			UnderlyingAddress:  common.HexToAddress(_vai),
 			UnderlyingDecimals: vaiDecimals,
 			CollateralFactor:   decimal.Zero,
@@ -271,7 +289,216 @@ func NewScanner(
 		//lowPriorityAccountSyncCh:  make(chan *AccountsWithFeededPrice, 1024),
 		//highPriorityAccountSyncCh: make(chan *AccountsWithFeededPrice, 248),
 	}
+}
 
+func (s *Scanner) Start() {
+	logger.Printf("server start")
+
+	//s.wg.Add(11)
+	//go s.SyncCloseFactorLoop()
+	//go s.SyncMarketsLoop()
+	//go s.SyncPriceLoop()
+	////go s.SyncMarketsAndPricesLoop()
+	//go s.ProcessFeededPriceLoop()
+	//go s.SearchNewBorrowerLoop()
+	//go s.BackgroundSyncLoop()
+	//go s.syncAccountLoop()
+	//go s.MonitorLiquidationEventLoop()
+	//go s.PrintConcernedAccountInfoLoop()
+	//go s.MonitorTxPoolLoop()
+	//go s.ProcessLiquidationLoop()
+}
+
+func (s *Scanner) Stop() {
+	close(s.quitCh)
+	s.wg.Wait()
+}
+
+func (s *Scanner) NewMarketLoop() {
+	defer s.wg.Done()
+
+	for {
+		select {
+		case <-s.quitCh:
+			return
+
+		case market := <-s.newMarketCh:
+			exist := false
+			for _, _market := range s.markets {
+				if _market == market {
+					exist = true
+					break
+				}
+			}
+
+			if !exist {
+				token, price, err := newMarket(s.c, s.comptroller, s.oracle, market)
+				if err != nil {
+					logger.Fatalf("fail to add newMarket %v err:%v", market, err)
+				}
+
+				//TODO(keep), store the markets or not
+				//db := s.db
+				//db.Put(dbm.MarketStoreKey(market.Bytes()), market.Bytes(), nil)
+
+				s.m.Lock()
+				s.markets = append(s.markets, market)
+				s.tokens[market] = token
+				s.prices[market] = price
+				s.m.Unlock()
+			}
+		}
+	}
+}
+
+func (s *Scanner) CloseFactorLoop() {
+	defer s.wg.Done()
+
+	for {
+		select {
+		case <-s.quitCh:
+			return
+		case newCloseFactor := <-s.closeFactorChangedCh:
+			s.m.Lock()
+			s.closeFactor = newCloseFactor
+			s.m.Unlock()
+
+		}
+	}
+}
+
+func (s *Scanner) CollateralFactorLoop() {
+	db := s.db
+	defer s.wg.Done()
+
+	for {
+		select {
+		case <-s.quitCh:
+			return
+
+		case newFactor := <-s.collateralFactorChangedCh:
+			if s.tokens[newFactor.Market] == nil {
+				log.Fatalf("fail to find market %v", newFactor.Market)
+			}
+
+			s.m.Lock()
+			oldCollateralFactor := s.tokens[newFactor.Market].CollateralFactor
+			s.tokens[newFactor.Market].CollateralFactor = newFactor.CollateralFactor
+			s.m.Unlock()
+
+			//if new collateralFactor is less than oldCollateralFactor, then recalculate all affected accounts health factor
+			if oldCollateralFactor.GreaterThan(newFactor.CollateralFactor) {
+				var accounts []common.Address
+				iter := db.NewIterator(util.BytesPrefix(dbm.MarketMemberPrefix), nil)
+				for iter.Next() {
+					accounts = append(accounts, common.BytesToAddress(iter.Value()))
+				}
+				iter.Release()
+
+				for _, account := range accounts {
+					s.highAccountSyncCh <- account
+				}
+			}
+		}
+	}
+}
+
+func (s *Scanner) EnterMarketLoop() {
+	db := s.db
+	defer s.wg.Done()
+
+	for {
+		select {
+		case <-s.quitCh:
+			return
+
+		case enter := <-s.enterMarketCh:
+			market := enter.Market.Bytes()
+			account := enter.Account.Bytes()
+			db.Put(dbm.MarketMemberStoreKey(market, account), account, nil)
+		}
+	}
+}
+
+func (s *Scanner) ExitMarketLoop() {
+	db := s.db
+	defer s.wg.Done()
+
+	for {
+		select {
+		case <-s.quitCh:
+			return
+
+		case exit := <-s.exitMarketCh:
+			market := exit.Market.Bytes()
+			account := exit.Account.Bytes()
+			db.Delete(dbm.MarketMemberStoreKey(market, account), nil)
+		}
+	}
+}
+
+func (s *Scanner) RepayVaiAmountChangedLoop() {
+	defer s.wg.Done()
+
+	for {
+		select {
+		case <-s.quitCh:
+			return
+		case change := <-s.repayVaiAmountChangedCh:
+			if change.Amount.IsPositive() {
+				s.highAccountSyncCh <- change.Account
+			}
+		}
+	}
+}
+
+func (s *Scanner) VTokenAmountChangedLoop() {
+	db := s.db
+	defer s.wg.Done()
+
+	for {
+		select {
+		case <-s.quitCh:
+			return
+		case change := <-s.vTokenAmountChangedCh:
+			//market := change.Market
+			from := change.From
+			//to := change.To
+
+			had, err := db.Has(dbm.BorrowersStoreKey(from.Bytes()), nil)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if had {
+				s.highAccountSyncCh <- from
+			}
+		}
+	}
+}
+
+func (s *Scanner) PriceChangedLoop() {
+	db := s.db
+	defer s.wg.Done()
+
+	for {
+		select {
+		case <-s.quitCh:
+			return
+		case change := <-s.priceChangedCh:
+			market := change.Market
+			var accounts []common.Address
+			prefix := append(dbm.MarketMemberPrefix, market.Bytes()...)
+			iter := db.NewIterator(util.BytesPrefix(prefix), nil)
+			for iter.Next() {
+				accounts = append(accounts, common.BytesToAddress(iter.Value()))
+			}
+			iter.Release()
+
+			for _, account := range accounts {
+				s.highAccountSyncCh <- account
+			}
+		}
+	}
 }
 
 func newMarket(c *ethclient.Client, comptroller *venus.Comptroller, oracle *venus.PriceOracle, market common.Address) (*TokenInfo, *TokenPrice, error) {
@@ -320,7 +547,7 @@ func newMarket(c *ethclient.Client, comptroller *venus.Comptroller, oracle *venu
 
 	tokenInfo := &TokenInfo{
 		Symbol:             symbol,
-		Address:            market,
+		Market:             market,
 		UnderlyingAddress:  underlyingAddress,
 		UnderlyingDecimals: underlyingDecimals,
 		CollateralFactor:   collateralFactor,
