@@ -459,7 +459,7 @@ func TestFeedPricesWithUpdateDB(t *testing.T) {
 	sync := NewSyncer(c, db, cfg.Comptroller, cfg.Oracle, cfg.PancakeRouter, cfg.Liquidator, cfg.PrivateKey)
 
 	oldPrice := sync.tokens["vBTC"].Price
-	oldHeight := sync.tokens["vBTC"].PriceUpdateHeight
+	oldHeight := sync.tokens["vBTC"].PriceUpdatedHeight
 	newPrice := oldPrice.Mul(decimal.New(103, -2))
 
 	time.Sleep(10 * time.Second)
@@ -474,7 +474,7 @@ func TestFeedPricesWithUpdateDB(t *testing.T) {
 	sync.processFeededPrice(feededPrice)
 
 	require.EqualValues(t, sync.tokens["vBTC"].Price, oldPrice)
-	require.Equal(t, sync.tokens["vBTC"].PriceUpdateHeight, oldHeight)
+	require.Equal(t, sync.tokens["vBTC"].PriceUpdatedHeight, oldHeight)
 	require.EqualValues(t, sync.tokens["vBTC"].FeededPrice, newPrice)
 	require.Equal(t, sync.tokens["vBTC"].FeedPriceUpdateHeihgt, height)
 }
@@ -1165,7 +1165,7 @@ func TestProcessFeedPrices(t *testing.T) {
 	require.NoError(t, err)
 
 	oldPrice := sync.tokens["vBTC"].Price
-	oldPriceUpdateHeight := sync.tokens["vBTC"].PriceUpdateHeight
+	oldPriceUpdateHeight := sync.tokens["vBTC"].PriceUpdatedHeight
 	newPrice := oldPrice.Mul(decimal.New(104, -2))
 
 	feededPrice := &FeededPrice{
@@ -1184,7 +1184,7 @@ func TestProcessFeedPrices(t *testing.T) {
 	}
 
 	require.Equal(t, sync.tokens["vBTC"].Price, oldPrice)
-	require.Equal(t, sync.tokens["vBTC"].PriceUpdateHeight, oldPriceUpdateHeight)
+	require.Equal(t, sync.tokens["vBTC"].PriceUpdatedHeight, oldPriceUpdateHeight)
 	require.Equal(t, sync.tokens["vBTC"].FeededPrice, newPrice)
 	require.Equal(t, sync.tokens["vBTC"].FeedPriceUpdateHeihgt, height)
 }
@@ -1253,7 +1253,7 @@ func TestProcessFeedPrice1(t *testing.T) {
 	require.NoError(t, err)
 
 	oldPrice := sync.tokens["vBTC"].Price
-	oldPriceUpdateHeight := sync.tokens["vBTC"].PriceUpdateHeight
+	oldPriceUpdateHeight := sync.tokens["vBTC"].PriceUpdatedHeight
 	newPrice := oldPrice.Mul(decimal.New(96, -2))
 
 	feededPrice := &FeededPrice{
@@ -1279,7 +1279,7 @@ func TestProcessFeedPrice1(t *testing.T) {
 	}
 
 	require.Equal(t, sync.tokens["vBTC"].Price, oldPrice)
-	require.Equal(t, sync.tokens["vBTC"].PriceUpdateHeight, oldPriceUpdateHeight)
+	require.Equal(t, sync.tokens["vBTC"].PriceUpdatedHeight, oldPriceUpdateHeight)
 	require.Equal(t, sync.tokens["vBTC"].FeededPrice, newPrice)
 	require.Equal(t, sync.tokens["vBTC"].FeedPriceUpdateHeihgt, height)
 }
@@ -1348,7 +1348,7 @@ func TestTestProcessFeedPriceVibrationExceed5Percent(t *testing.T) {
 	require.NoError(t, err)
 
 	oldPrice := sync.tokens["vBTC"].Price
-	oldPriceUpdateHeight := sync.tokens["vBTC"].PriceUpdateHeight
+	oldPriceUpdateHeight := sync.tokens["vBTC"].PriceUpdatedHeight
 
 	feedPrice := &FeededPrice{
 		Address: sync.tokens["vBTC"].Address,
@@ -1361,7 +1361,7 @@ func TestTestProcessFeedPriceVibrationExceed5Percent(t *testing.T) {
 	require.Equal(t, 0, len(sync.lowPriorityAccountSyncCh))
 
 	require.Equal(t, sync.tokens["vBTC"].Price, oldPrice)
-	require.Equal(t, sync.tokens["vBTC"].PriceUpdateHeight, oldPriceUpdateHeight)
+	require.Equal(t, sync.tokens["vBTC"].PriceUpdatedHeight, oldPriceUpdateHeight)
 	require.True(t, sync.tokens["vBTC"].FeededPrice.Cmp(decimal.Zero) == 0)
 	require.EqualValues(t, sync.tokens["vBTC"].FeedPriceUpdateHeihgt, 0)
 }
@@ -1430,7 +1430,7 @@ func TestSyncAccountLoopWithFeedPrice(t *testing.T) {
 	require.NoError(t, err)
 
 	oldPrice := sync.tokens["vBTC"].Price
-	oldPriceUpdateHeight := sync.tokens["vBTC"].PriceUpdateHeight
+	oldPriceUpdateHeight := sync.tokens["vBTC"].PriceUpdatedHeight
 	newPrice := oldPrice.Mul(decimal.New(96, -2))
 
 	feededPrice := &FeededPrice{
@@ -1448,7 +1448,7 @@ func TestSyncAccountLoopWithFeedPrice(t *testing.T) {
 	close(sync.quitCh)
 
 	require.Equal(t, sync.tokens["vBTC"].Price, oldPrice)
-	require.Equal(t, sync.tokens["vBTC"].PriceUpdateHeight, oldPriceUpdateHeight)
+	require.Equal(t, sync.tokens["vBTC"].PriceUpdatedHeight, oldPriceUpdateHeight)
 	require.Equal(t, sync.tokens["vBTC"].FeededPrice, newPrice)
 	require.Equal(t, sync.tokens["vBTC"].FeedPriceUpdateHeihgt, height)
 

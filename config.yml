@@ -1,13 +1,11 @@
-rpc_url: "https://data-seed-prebsc-1-s3.bnbchain.org:8545"
-network: mainnet
+rpc_url: https://data-seed-prebsc-1-s3.bnbchain.org:8545
+network: testnet
 comptroller : "0xfD36E2c2a6789Db23113685031d7F16329158384"
 vai_controller: "0x96ae4986D9ff19992dA84B5DBA9790cAE7246b80"
 vai: "0x7C4f97bF4c28732F9E257B6dF24D12C8Bf43E1f8"
 wbtc: "0x39d770382A22cdb61AD47B6faFC76A872d4fb3e8"
 weth: "0xB167B4136446a07fFbC83946C0F66Fa4289e2953"
 oracle: "0xd8B6dA2bfEC71D684D3E2a2FC9492dDad5C3787F"
-pancake_router: "0x10ED43C718714eb63d5aA57B78B54704E256024E"
-liquidator: "0xB4Abb34e08094B1915Ac3f7882aed81d0104b121"
 private_key: "811737801d908d6ba78a59b9e705562bcf70ee0f707952c4ad22252599b17738"
 db: maindb
 start_height: 13000000

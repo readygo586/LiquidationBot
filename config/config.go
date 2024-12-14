@@ -14,8 +14,6 @@ type Config struct {
 	Vai           string `yaml:"vai"`
 	WBTC          string `yaml:"wbtc"`
 	WETH          string `yaml:"weth"`
-	PancakeRouter string `yaml:"pancake_router"`
-	Liquidator    string `yaml:"liquidator"`
 	PrivateKey    string `yaml:"private_key"`
 	DB            string `yaml:"db"`
 	StartHeight   uint64 `yaml:"start_height"`

@@ -37,7 +37,9 @@ const (
 	SyncIntervalBelow2P0                 = 720
 	SyncIntervalAbove2P0                 = 1800
 	SyncIntervalBackGround               = 600
-	SyncIntervalForMarkets               = 6
+	SyncIntervalCloseFactor              = 1200
+	SyncIntervalMarkets                  = 600
+	SyncIntervalPrice                    = 12
 	MonitorLiquidationInterval           = 120
 	ForbiddenPeriodForBadLiquidation     = 200 //200 block
 	ForbiddenPeriodForPendingLiquidation = 200
@@ -47,15 +49,16 @@ const (
 )
 
 type TokenInfo struct {
-	Address               common.Address
-	UnderlyingAddress     common.Address
-	UnderlyingDecimals    uint8
-	CollateralFactor      decimal.Decimal
-	Price                 decimal.Decimal
-	PriceUpdateHeight     uint64
-	FeededPrice           decimal.Decimal
-	FeedPriceUpdateHeihgt uint64
-	Oracle                common.Address
+	Symbol             string
+	Address            common.Address
+	UnderlyingAddress  common.Address
+	UnderlyingDecimals uint8
+	CollateralFactor   decimal.Decimal
+}
+
+type TokenPrice struct {
+	Price              decimal.Decimal
+	PriceUpdatedHeight uint64
 }
 
 type Asset struct {
@@ -107,20 +110,20 @@ type ConcernedAccountInfo struct {
 type semaphore chan struct{}
 
 var (
-	EXPSACLE              = decimal.New(1, 18)
-	ExpScaleFloat, _      = big.NewFloat(0).SetString("1000000000000000000")
-	BigZero               = big.NewInt(0)
-	DecimalMax            = decimal.New(1, 128) // solidity's 2^256 = 4^128 < decimal's 10^128
-	Decimal1P0, _         = decimal.NewFromString("1.0")
-	Decimal1P1, _         = decimal.NewFromString("1.1")
-	Decimal1P5, _         = decimal.NewFromString("1.5")
-	Decimal2P0, _         = decimal.NewFromString("2.0")
-	Decimal3P0, _         = decimal.NewFromString("3.0")
-	DecimalNonProfit, _   = decimal.NewFromString("255") //magicnumber for nonprofit
-	vBNBAddress           = common.HexToAddress("0xA07c5b74C9B40447a954e1466938b865b6BBea36")
-	wBNBAddress           = common.HexToAddress("0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c")
-	VAIAddress            = common.HexToAddress("0x4BD17003473389A42DAF6a0a729f6Fdb328BbBd7")
-	VAIControllerAddress  = common.HexToAddress("0x004065D34C6b18cE4370ced1CeBDE94865DbFAFE")
+	EXPSACLE            = decimal.New(1, 18)
+	ExpScaleFloat, _    = big.NewFloat(0).SetString("1000000000000000000")
+	BigZero             = big.NewInt(0)
+	DecimalMax          = decimal.New(1, 128) // solidity's 2^256 = 4^128 < decimal's 10^128
+	Decimal1P0, _       = decimal.NewFromString("1.0")
+	Decimal1P1, _       = decimal.NewFromString("1.1")
+	Decimal1P5, _       = decimal.NewFromString("1.5")
+	Decimal2P0, _       = decimal.NewFromString("2.0")
+	Decimal3P0, _       = decimal.NewFromString("3.0")
+	DecimalNonProfit, _ = decimal.NewFromString("255") //magicnumber for nonprofit
+	vBNBAddress         = common.HexToAddress("0xA07c5b74C9B40447a954e1466938b865b6BBea36")
+	wBNBAddress         = common.HexToAddress("0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c")
+	//VAIAddress            = common.HexToAddress("0x4BD17003473389A42DAF6a0a729f6Fdb328BbBd7")
+	//VAIControllerAddress  = common.HexToAddress("0x004065D34C6b18cE4370ced1CeBDE94865DbFAFE")
 	ProfitThreshold       = decimal.New(5, 18)   //5 USDT
 	MaxLoanValueThreshold = decimal.New(100, 18) //100 USDT
 )
@@ -129,18 +132,25 @@ type Syncer struct {
 	c  *ethclient.Client
 	db *leveldb.DB
 
-	oracle                    *venus.PriceOracle
-	comptroller               *venus.Comptroller
-	pancakeRouter             *venus.IPancakeRouter02
-	pancakeFactory            *venus.IPancakeFactory
-	closeFactor               decimal.Decimal
-	symbols                   map[common.Address]string
-	tokens                    map[string]*TokenInfo
-	flashLoanPools            map[string][]common.Address
-	paths                     map[string][][]common.Address //"srcSymbol:dstSymbol"
-	vbep20s                   map[common.Address]*venus.Vbep20
-	liquidator                *venus.IQingsuan
-	PrivateKey                *ecdsa.PrivateKey
+	//global setting
+	comptroller   *venus.Comptroller
+	vaiController *venus.VaiController
+	vai           *venus.Vai
+	oracle        *venus.PriceOracle
+	closeFactor   decimal.Decimal
+
+	//token info
+	tokens  map[common.Address]*TokenInfo
+	prices  map[common.Address]*TokenPrice
+	vbep20s map[common.Address]*venus.Vbep20
+
+	//self privateKey and address
+	liquidator *venus.IQingsuan
+	PrivateKey *ecdsa.PrivateKey
+	Address    common.Address
+	vaiBalance decimal.Decimal
+
+	//mutex, wg and channel
 	m                         sync.Mutex
 	wg                        sync.WaitGroup
 	quitCh                    chan struct{}
@@ -167,18 +177,19 @@ func (s semaphore) Release() {
 func NewSyncer(
 	c *ethclient.Client,
 	db *leveldb.DB,
-	comptrollerAddress string,
-	oracleAddress string,
-	pancakeRouterAddress string,
-	liquidatorAddress string,
-	privatekey string) *Syncer {
+	_comptroller string,
+	_vaiController string,
+	_vai string,
+	_oracle string,
+	_privateKey string,
+) *Syncer {
 
 	exist, err := db.Has(dbm.BorrowerNumberKey(), nil)
 	if !exist {
 		db.Put(dbm.BorrowerNumberKey(), big.NewInt(0).Bytes(), nil)
 	}
 
-	comptroller, err := venus.NewComptroller(common.HexToAddress(comptrollerAddress), c)
+	comptroller, err := venus.NewComptroller(common.HexToAddress(_comptroller), c)
 	if err != nil {
 		panic(err)
 	}
@@ -189,43 +200,40 @@ func NewSyncer(
 	}
 	closeFactor := decimal.NewFromBigInt(bigCloseFactor, 0)
 
-	oracle, err := venus.NewPriceOracle(common.HexToAddress(oracleAddress), c)
+	vaiController, err := venus.NewVaiController(common.HexToAddress(_vaiController), c)
 	if err != nil {
 		panic(err)
 	}
 
-	pancakeRouter, err := venus.NewIPancakeRouter02(common.HexToAddress(pancakeRouterAddress), c)
+	vai, err := venus.NewVai(common.HexToAddress(_vai), c)
 	if err != nil {
 		panic(err)
 	}
 
-	factoryAddress, err := pancakeRouter.Factory(nil)
+	oracle, err := venus.NewPriceOracle(common.HexToAddress(_oracle), c)
 	if err != nil {
 		panic(err)
 	}
 
-	pancakeFactory, err := venus.NewIPancakeFactory(factoryAddress, c)
+	privateKey, err := crypto.HexToECDSA(_privateKey)
 	if err != nil {
 		panic(err)
 	}
-
-	liquidator, err := venus.NewIQingsuan(common.HexToAddress(liquidatorAddress), c)
-	if err != nil {
-		panic(err)
+	_publicKey := privateKey.Public()
+	publicKey, ok := _publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		panic("failed to cast public key to ECDSA")
 	}
-
-	privateKey, err := crypto.HexToECDSA(privatekey)
-	if err != nil {
-		panic(err)
-	}
+	account := crypto.PubkeyToAddress(*publicKey)
 
 	markets, err := comptroller.GetAllMarkets(nil)
 	if err != nil {
 		panic(err)
 	}
 
-	symbols := make(map[common.Address]string)
-	tokens := make(map[string]*TokenInfo)
+	//collect all markets information parrallel
+	tokens := make(map[common.Address]*TokenInfo)
+	prices := make(map[common.Address]*TokenPrice)
 	vbep20s := make(map[common.Address]*venus.Vbep20)
 
 	var wg sync.WaitGroup
@@ -233,134 +241,85 @@ func NewSyncer(
 	wg.Add(len(markets))
 
 	sem := make(semaphore, runtime.NumCPU())
-	for _, market_ := range markets {
-		market := market_
+	for _, _market := range markets {
+		market := _market
 		sem.Acquire()
 		go func() {
 			defer sem.Release()
 			defer wg.Done()
-
-			vbep20, err := venus.NewVbep20(market, c)
+			token, price, err := newMarket(c, comptroller, oracle, market)
+			if err != nil {
+				panic(err)
+			}
+			vbep20, err := venus.NewVbep20(market, c) //vBep20
 			if err != nil {
 				panic(err)
 			}
 
-			symbol, err := vbep20.Symbol(nil)
-			if err != nil {
-				panic(err)
-			}
-
-			marketDetail, err := comptroller.Markets(nil, market)
-			if err != nil {
-				panic(err)
-			}
-
-			bigPrice, err := oracle.GetUnderlyingPrice(nil, market)
-			if err != nil {
-				bigPrice = big.NewInt(0)
-			}
-			var underlyingAddress common.Address
-			if market == vBNBAddress {
-				underlyingAddress = wBNBAddress
-			} else {
-				underlyingAddress, err = vbep20.Underlying(nil)
-				if err != nil {
-					panic(err)
-				}
-			}
-
-			bep20, err := venus.NewVbep20(underlyingAddress, c)
-			underlyingDecimals, err := bep20.Decimals(nil)
-			if err != nil {
-				panic(err)
-			}
-
-			collaterFactor := decimal.NewFromBigInt(marketDetail.CollateralFactorMantissa, 0)
-			price := decimal.NewFromBigInt(bigPrice, 0)
-
-			feedSymbol := strings.TrimPrefix(symbol, "v")
-			if feedSymbol == "BTC" {
-				feedSymbol = "BTCB"
-			}
-
-			var finalOracle common.Address
-			if symbol != "vCAN" {
-				feedAddr, err := oracle.GetFeed(nil, feedSymbol)
-				if err != nil {
-					panic(err)
-				}
-
-				priceFeed, err := venus.NewPriceFeed(feedAddr, c)
-				if err != nil {
-					panic(err)
-				}
-
-				//feedDecimal, err := priceFeed.Decimals(nil)
-				//if err != nil {
-				//	panic(err)
-				//}
-
-				//logger.Printf("%v feeddecimal:%v\n", symbol, feedDecimal)
-
-				finalOracle, err = priceFeed.Aggregator(nil)
-				//logger.Printf("symbol:%v, priceFeed:%v, oracle:%v\n", symbol, feedAddr, finalOracle)
-				if err != nil {
-					panic(err)
-				}
-			}
-
-			height, err := c.BlockNumber(context.Background())
-			if err != nil {
-				panic(err)
-			}
-
-			token := &TokenInfo{
-				Address:            market,
-				UnderlyingAddress:  underlyingAddress,
-				UnderlyingDecimals: underlyingDecimals,
-				CollateralFactor:   collaterFactor,
-				Price:              price,
-				PriceUpdateHeight:  height,
-				Oracle:             finalOracle,
-			}
-
+			log.Info("symbol:", token.Symbol, "market:", market)
 			m.Lock()
-			//logger.Printf("market:%v, symbol:%v, token:%+v\n", market, symbol, token)
-			tokens[symbol] = token
-			symbols[market] = symbol
+			tokens[market] = token
+			prices[market] = price
 			vbep20s[market] = vbep20
 			m.Unlock()
 		}()
 	}
 	wg.Wait()
 
-	tokens["VAI"] = &TokenInfo{
-		Address:            VAIControllerAddress,
-		UnderlyingAddress:  VAIAddress,
-		UnderlyingDecimals: 18,
-		CollateralFactor:   decimal.Zero,
-		Price:              decimal.New(1, 18),
-		Oracle:             common.Address{},
+	//special processing for vai
+	{
+		vaiSymbol, err := vai.Symbol(nil)
+		if err != nil {
+			panic(err)
+		}
+
+		vaiDecimals, err := vai.Decimals(nil)
+		if err != nil {
+			panic(err)
+		}
+
+		tokens[common.HexToAddress(_vai)] = &TokenInfo{
+			Symbol:             vaiSymbol,
+			Address:            common.HexToAddress(_vaiController),
+			UnderlyingAddress:  common.HexToAddress(_vai),
+			UnderlyingDecimals: vaiDecimals,
+			CollateralFactor:   decimal.Zero,
+		}
+
+		prices[common.HexToAddress(_vai)] = &TokenPrice{
+			Price: decimal.New(1, 18),
+		}
 	}
 
-	flashLoanPool := buildFlashLoanPool(pancakeFactory, c, tokens)
-	paths := buildPaths(pancakeRouter, tokens)
+	_vaiBalance, err := vai.BalanceOf(nil, account)
+	if err != nil {
+		panic(err)
+	}
+	vaiBalance := decimal.NewFromBigInt(_vaiBalance, 0)
+	_vaiLoan, err := vaiController.GetVAIRepayAmount(nil, account)
+	if err != nil {
+		panic(err)
+	}
+	logger.Printf("vaiBalance:%v, vaiLoan:%v\n", _vaiBalance, _vaiLoan)
 
+	//TODO(fix), calculate health factor
 	return &Syncer{
-		c:                         c,
-		db:                        db,
-		oracle:                    oracle,
-		comptroller:               comptroller,
-		pancakeRouter:             pancakeRouter,
-		pancakeFactory:            pancakeFactory,
-		closeFactor:               closeFactor,
-		tokens:                    tokens,
-		flashLoanPools:            flashLoanPool,
-		paths:                     paths,
-		symbols:                   symbols,
-		vbep20s:                   vbep20s,
-		liquidator:                liquidator,
+		c:  c,
+		db: db,
+
+		comptroller:   comptroller,
+		vaiController: vaiController,
+		vai:           vai,
+		oracle:        oracle,
+		closeFactor:   closeFactor,
+
+		tokens:  tokens,
+		prices:  prices,
+		vbep20s: vbep20s,
+
 		PrivateKey:                privateKey,
+		Address:                   account,
+		vaiBalance:                vaiBalance,
 		m:                         m,
 		quitCh:                    make(chan struct{}),
 		feededPriceCh:             make(chan *FeededPrice, 64),
@@ -377,8 +336,11 @@ func (s *Syncer) Start() {
 	log.Info("server start")
 	fmt.Println("server start")
 
-	s.wg.Add(9)
-	go s.SyncMarketsAndPricesLoop()
+	s.wg.Add(11)
+	go s.SyncCloseFactorLoop()
+	go s.SyncMarketsLoop()
+	go s.SyncPriceLoop()
+	//go s.SyncMarketsAndPricesLoop()
 	go s.ProcessFeededPriceLoop()
 	go s.SearchNewBorrowerLoop()
 	go s.BackgroundSyncLoop()
@@ -394,7 +356,100 @@ func (s *Syncer) Stop() {
 	s.wg.Wait()
 }
 
-func (s *Syncer) SyncMarketsAndPricesLoop() {
+func (s *Syncer) SyncCloseFactorLoop() {
+	defer s.wg.Done()
+	t := time.NewTimer(0)
+	defer t.Stop()
+
+	count := 1
+	for {
+		select {
+		case <-s.quitCh:
+			return
+		case <-t.C:
+			count++
+			s.doSyncCloseFactor()
+			t.Reset(time.Second * SyncIntervalCloseFactor)
+		}
+	}
+}
+
+func (s *Syncer) doSyncCloseFactor() {
+	comptroller := s.comptroller
+	bigCloseFactor, err := comptroller.CloseFactorMantissa(nil)
+	if err != nil {
+		return
+	}
+	closeFactor := decimal.NewFromBigInt(bigCloseFactor, 0)
+	if !closeFactor.Equal(s.closeFactor) {
+		s.m.Lock()
+		s.closeFactor = closeFactor
+		s.m.Unlock()
+	}
+}
+
+func (s *Syncer) SyncMarketsLoop() {
+	defer s.wg.Done()
+	t := time.NewTimer(0)
+	defer t.Stop()
+
+	count := 1
+	for {
+		select {
+		case <-s.quitCh:
+			return
+		case <-t.C:
+			count++
+			s.doSyncMarkets()
+			t.Reset(time.Second * SyncIntervalMarkets)
+		}
+	}
+}
+
+func (s *Syncer) doSyncMarkets() {
+	comptroller := s.comptroller
+	oracle := s.oracle
+	c := s.c
+
+	s.m.Lock()
+	tokens := copyTokens(s.tokens)
+	s.m.Unlock()
+
+	markets, err := comptroller.GetAllMarkets(nil)
+	if err != nil {
+		return
+	}
+
+	for _, _market := range markets {
+		//a new market added
+		if tokens[_market] == nil {
+			logger.Printf("a new market:%v added\n", _market)
+			token, price, err := newMarket(c, comptroller, oracle, _market)
+			if err != nil {
+				continue
+			}
+
+			s.m.Lock()
+			s.tokens[_market] = token
+			s.prices[_market] = price
+			s.m.Unlock()
+			continue
+		} else {
+			marketDetail, err := comptroller.Markets(nil, _market)
+			if err != nil {
+				continue
+			}
+			collateralFactor := decimal.NewFromBigInt(marketDetail.CollateralFactorMantissa, 0)
+			if !collateralFactor.Equal(tokens[_market].CollateralFactor) {
+				s.m.Lock()
+				s.tokens[_market].CollateralFactor = collateralFactor
+				s.m.Unlock()
+			}
+		}
+	}
+}
+
+func (s *Syncer) SyncPriceLoop() {
 	defer s.wg.Done()
 	t := time.NewTimer(0)
 	defer t.Stop()
@@ -407,13 +462,13 @@ func (s *Syncer) SyncMarketsAndPricesLoop() {
 		case <-t.C:
 			//logger.Printf("%v th sync markers and prices @ %v\n", count, time.Now())
 			count++
-			s.doSyncMarketsAndPrices()
-			t.Reset(time.Second * SyncIntervalForMarkets)
+			s.doSyncPrices()
+			t.Reset(time.Second * SyncIntervalPrice)
 		}
 	}
 }
 
-func (s *Syncer) doSyncMarketsAndPrices() {
+func (s *Syncer) doSyncPrices() {
 	comptroller := s.comptroller
 	oracle := s.oracle
 	c := s.c
@@ -423,188 +478,176 @@ func (s *Syncer) doSyncMarketsAndPrices() {
 		return
 	}
 
-	bigCloseFactor, err := comptroller.CloseFactorMantissa(nil)
-	if err != nil {
-		return
-	}
-	s.closeFactor = decimal.NewFromBigInt(bigCloseFactor, 0)
-	for _, market_ := range markets {
-		market := market_
-		vbep20, err := venus.NewVbep20(market, c)
-		if err != nil {
-			continue
-		}
-		symbol, err := vbep20.Symbol(nil)
-		if err != nil {
-			continue
-		}
-
-		marketDetail, err := comptroller.Markets(nil, market)
-		if err != nil {
-			continue
-		}
-
-		bigPrice, err := oracle.GetUnderlyingPrice(nil, market)
+	for _, _market := range markets {
+		bigPrice, err := oracle.GetUnderlyingPrice(nil, _market)
 		if err != nil {
 			bigPrice = big.NewInt(0)
 		}
+		_price := decimal.NewFromBigInt(bigPrice, 0)
+		if s.tokens[_market] == nil {
+			logger.Printf("a new market:%v found, restart the venus server\n", _market)
+			continue
+		}
+		if _price.Equal(s.prices[_market].Price) {
+			continue //price not changed, continue
+		}
 
-		height, err := s.c.BlockNumber(context.Background())
+		height, err := c.BlockNumber(context.Background())
 		if err != nil {
 			continue
 		}
-		s.m.Lock()
-		if s.tokens[symbol] != nil {
-			s.tokens[symbol].CollateralFactor = decimal.NewFromBigInt(marketDetail.CollateralFactorMantissa, 0)
-			s.tokens[symbol].Price = decimal.NewFromBigInt(bigPrice, 0)
-			s.tokens[symbol].PriceUpdateHeight = height
-		} else {
-			logger.Printf("a new symbol:%v added, please restart venusd\n", symbol)
+
+		price := &TokenPrice{
+			Price:              _price,
+			PriceUpdatedHeight: height,
 		}
+		s.m.Lock()
+		s.prices[_market] = price
 		s.m.Unlock()
 	}
 }
 
-func (s *Syncer) ProcessFeededPriceLoop() {
-	defer s.wg.Done()
-	for {
-		select {
-		case <-s.quitCh:
-			return
-		case feededPrice := <-s.feededPriceCh:
-			s.processFeededPrice(feededPrice)
-		}
-	}
-}
-
-func (s *Syncer) processFeededPrice(feededPrice *FeededPrice) {
-	db := s.db
-	var accountsSymbol []common.Address
-	var accountsSymobl2 []common.Address
-	wg := s.wg
-
-	s.m.Lock()
-	tokens := copyTokens(s.tokens)
-	s.m.Unlock()
-
-	symbol := feededPrice.Symbol
-	price := tokens[symbol].Price
-	priceDeltaRatio := price.Sub(feededPrice.Price).Abs().Div(price)
-	if priceDeltaRatio.Cmp(decimal.New(10, -2)) == 1 {
-		logger.Printf("processFeededPrices, sybmol:%v，feedPrices %v, originalPrices:%v, vibration %v exceeds 5 percent, height%v\n", symbol, feededPrice.Price, price, priceDeltaRatio, feededPrice.Height)
-		return
-	}
-
-	symbol2 := ""
-	if symbol == "vBETH" {
-		symbol2 = "vETH"
-	}
-	if symbol == "vETH" {
-		symbol2 = "vBETH"
-	}
-
-	s.m.Lock()
-	s.tokens[symbol].FeededPrice = feededPrice.Price
-	s.tokens[symbol].FeedPriceUpdateHeihgt = feededPrice.Height
-
-	if symbol2 != "" {
-		s.tokens[symbol2].FeededPrice = feededPrice.Price
-		s.tokens[symbol2].FeedPriceUpdateHeihgt = feededPrice.Height
-	}
-	s.m.Unlock()
-
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		prefix := append(dbm.MarketPrefix, []byte(symbol)...)
-		iter := db.NewIterator(util.BytesPrefix(prefix), nil)
-		defer iter.Release()
-		for iter.Next() {
-			account := common.BytesToAddress(iter.Value())
-			accountsSymbol = append(accountsSymbol, account)
-		}
-	}()
-
-	go func() {
-		defer wg.Done()
-		if symbol2 != "" {
-			prefix2 := append(dbm.MarketPrefix, []byte(symbol2)...)
-			iter := db.NewIterator(util.BytesPrefix(prefix2), nil)
-			defer iter.Release()
-			for iter.Next() {
-				account := common.BytesToAddress(iter.Value())
-				accountsSymobl2 = append(accountsSymobl2, account)
-			}
-		}
-	}()
-	wg.Wait()
-	accountsSymbol = append(accountsSymbol, accountsSymobl2...)
-
-	priorityAccountMap := make(map[common.Address]bool)
-	iter := db.NewIterator(util.BytesPrefix(dbm.LiquidationBelow1P1Prefix), nil)
-	for iter.Next() {
-		account := common.BytesToAddress(iter.Value())
-		priorityAccountMap[account] = true
-	}
-
-	iter = db.NewIterator(util.BytesPrefix(dbm.LiquidationBelow1P0Prefix), nil)
-	for iter.Next() {
-		account := common.BytesToAddress(iter.Value())
-		priorityAccountMap[account] = true
-	}
-	iter.Release()
-
-	var highPriorityAccounts []common.Address
-	var lowPriorityAccounts []common.Address
-	for _, account := range accountsSymbol {
-		if priorityAccountMap[account] {
-			highPriorityAccounts = append(highPriorityAccounts, account)
-		} else {
-			lowPriorityAccounts = append(lowPriorityAccounts, account)
-		}
-	}
-
-	//sort accounts according ascending healthfactor
-	healthFactors := make([]decimal.Decimal, 0)
-	finalHighPriorityAccounts := make([]common.Address, 0)
-	errorHighPriorityAccounts := make([]common.Address, 0)
-	for _, account := range highPriorityAccounts {
-		bz, err := db.Get(dbm.AccountStoreKey(account.Bytes()), nil)
-		if err != nil {
-			errorHighPriorityAccounts = append(errorHighPriorityAccounts, account)
-		}
-		var info AccountInfo
-		err = json.Unmarshal(bz, &info)
-		if err != nil {
-			errorHighPriorityAccounts = append(errorHighPriorityAccounts, account)
-		} else {
-			healthFactors = append(healthFactors, info.HealthFactor)
-			finalHighPriorityAccounts = append(finalHighPriorityAccounts, account)
-		}
-	}
-
-	for i := 0; i < len(finalHighPriorityAccounts)-1; i++ {
-		for j := i + 1; j < len(finalHighPriorityAccounts); j++ {
-			if healthFactors[i].Cmp(healthFactors[j]) == 1 {
-				healthFactors[i], healthFactors[j] = healthFactors[j], healthFactors[j]
-				finalHighPriorityAccounts[i], finalHighPriorityAccounts[j] = finalHighPriorityAccounts[j], finalHighPriorityAccounts[i]
-			}
-		}
-	}
-
-	//send highPriorityAccount as a batch
-	if len(finalHighPriorityAccounts) != 0 {
-		s.highPriorityAccountSyncCh <- &AccountsWithFeededPrice{
-			Addresses:   finalHighPriorityAccounts,
-			FeededPrice: feededPrice,
-		}
-
-		s.highPriorityAccountSyncCh <- &AccountsWithFeededPrice{
-			Addresses:   errorHighPriorityAccounts,
-			FeededPrice: feededPrice,
-		}
-	}
-}
+//
+//func (s *Syncer) ProcessFeededPriceLoop() {
+//	defer s.wg.Done()
+//	for {
+//		select {
+//		case <-s.quitCh:
+//			return
+//		case feededPrice := <-s.feededPriceCh:
+//			s.processFeededPrice(feededPrice)
+//		}
+//	}
+//}
+//
+//func (s *Syncer) processFeededPrice(feededPrice *FeededPrice) {
+//	db := s.db
+//	var accountsSymbol []common.Address
+//	var accountsSymobl2 []common.Address
+//	wg := s.wg
+//
+//	s.m.Lock()
+//	tokens := copyTokens(s.tokens)
+//	s.m.Unlock()
+//
+//	symbol := feededPrice.Symbol
+//	price := tokens[symbol].Price
+//	priceDeltaRatio := price.Sub(feededPrice.Price).Abs().Div(price)
+//	if priceDeltaRatio.Cmp(decimal.New(10, -2)) == 1 {
+//		logger.Printf("processFeededPrices, sybmol:%v，feedPrices %v, originalPrices:%v, vibration %v exceeds 5 percent, height%v\n", symbol, feededPrice.Price, price, priceDeltaRatio, feededPrice.Height)
+//		return
+//	}
+//
+//	symbol2 := ""
+//	if symbol == "vBETH" {
+//		symbol2 = "vETH"
+//	}
+//	if symbol == "vETH" {
+//		symbol2 = "vBETH"
+//	}
+//
+//	s.m.Lock()
+//	s.tokens[symbol].FeededPrice = feededPrice.Price
+//	s.tokens[symbol].FeedPriceUpdateHeihgt = feededPrice.Height
+//
+//	if symbol2 != "" {
+//		s.tokens[symbol2].FeededPrice = feededPrice.Price
+//		s.tokens[symbol2].FeedPriceUpdateHeihgt = feededPrice.Height
+//	}
+//	s.m.Unlock()
+//
+//	wg.Add(2)
+//	go func() {
+//		defer wg.Done()
+//		prefix := append(dbm.MarketPrefix, []byte(symbol)...)
+//		iter := db.NewIterator(util.BytesPrefix(prefix), nil)
+//		defer iter.Release()
+//		for iter.Next() {
+//			account := common.BytesToAddress(iter.Value())
+//			accountsSymbol = append(accountsSymbol, account)
+//		}
+//	}()
+//
+//	go func() {
+//		defer wg.Done()
+//		if symbol2 != "" {
+//			prefix2 := append(dbm.MarketPrefix, []byte(symbol2)...)
+//			iter := db.NewIterator(util.BytesPrefix(prefix2), nil)
+//			defer iter.Release()
+//			for iter.Next() {
+//				account := common.BytesToAddress(iter.Value())
+//				accountsSymobl2 = append(accountsSymobl2, account)
+//			}
+//		}
+//	}()
+//	wg.Wait()
+//	accountsSymbol = append(accountsSymbol, accountsSymobl2...)
+//
+//	priorityAccountMap := make(map[common.Address]bool)
+//	iter := db.NewIterator(util.BytesPrefix(dbm.LiquidationBelow1P1Prefix), nil)
+//	for iter.Next() {
+//		account := common.BytesToAddress(iter.Value())
+//		priorityAccountMap[account] = true
+//	}
+//
+//	iter = db.NewIterator(util.BytesPrefix(dbm.LiquidationBelow1P0Prefix), nil)
+//	for iter.Next() {
+//		account := common.BytesToAddress(iter.Value())
+//		priorityAccountMap[account] = true
+//	}
+//	iter.Release()
+//
+//	var highPriorityAccounts []common.Address
+//	var lowPriorityAccounts []common.Address
+//	for _, account := range accountsSymbol {
+//		if priorityAccountMap[account] {
+//			highPriorityAccounts = append(highPriorityAccounts, account)
+//		} else {
+//			lowPriorityAccounts = append(lowPriorityAccounts, account)
+//		}
+//	}
+//
+//	//sort accounts according ascending healthfactor
+//	healthFactors := make([]decimal.Decimal, 0)
+//	finalHighPriorityAccounts := make([]common.Address, 0)
+//	errorHighPriorityAccounts := make([]common.Address, 0)
+//	for _, account := range highPriorityAccounts {
+//		bz, err := db.Get(dbm.AccountStoreKey(account.Bytes()), nil)
+//		if err != nil {
+//			errorHighPriorityAccounts = append(errorHighPriorityAccounts, account)
+//		}
+//		var info AccountInfo
+//		err = json.Unmarshal(bz, &info)
+//		if err != nil {
+//			errorHighPriorityAccounts = append(errorHighPriorityAccounts, account)
+//		} else {
+//			healthFactors = append(healthFactors, info.HealthFactor)
+//			finalHighPriorityAccounts = append(finalHighPriorityAccounts, account)
+//		}
+//	}
+//
+//	for i := 0; i < len(finalHighPriorityAccounts)-1; i++ {
+//		for j := i + 1; j < len(finalHighPriorityAccounts); j++ {
+//			if healthFactors[i].Cmp(healthFactors[j]) == 1 {
+//				healthFactors[i], healthFactors[j] = healthFactors[j], healthFactors[j]
+//				finalHighPriorityAccounts[i], finalHighPriorityAccounts[j] = finalHighPriorityAccounts[j], finalHighPriorityAccounts[i]
+//			}
+//		}
+//	}
+//
+//	//send highPriorityAccount as a batch
+//	if len(finalHighPriorityAccounts) != 0 {
+//		s.highPriorityAccountSyncCh <- &AccountsWithFeededPrice{
+//			Addresses:   finalHighPriorityAccounts,
+//			FeededPrice: feededPrice,
+//		}
+//
+//		s.highPriorityAccountSyncCh <- &AccountsWithFeededPrice{
+//			Addresses:   errorHighPriorityAccounts,
+//			FeededPrice: feededPrice,
+//		}
+//	}
+//}
 
 func (s *Syncer) syncAccountLoop() {
 	defer s.wg.Done()
@@ -653,13 +696,15 @@ func (s *Syncer) processHighPriorityAccountSync(req *AccountsWithFeededPrice) {
 	wg.Wait()
 }
 
+
+//Monitoring accounts
 func (s *Syncer) SearchNewBorrowerLoop() {
 	defer s.wg.Done()
 	db := s.db
 	c := s.c
 	ctx := context.Background()
+
 	s.m.Lock()
-	symbols := copySymbols(s.symbols)
 	tokens := copyTokens(s.tokens)
 	s.m.Unlock()
 
@@ -842,84 +887,85 @@ func (s *Syncer) MonitorLiquidationEventLoop() {
 	}
 }
 
-func (s *Syncer) MonitorTxPoolLoop() {
-	defer s.wg.Done()
-
-	v := reflect.ValueOf(s.c).Elem()
-	f := v.FieldByName("c")
-	rf := reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem()
-	concrete_client, _ := rf.Interface().(*rpc.Client)
-
-	txPoolTXs := make(chan common.Hash, 2048)
-	concrete_client.EthSubscribe(
-		context.Background(), txPoolTXs, "newPendingTransactions",
-	)
-	aggregatorABI, _ := venus.AggregatorMetaData.GetAbi()
-	OracleToVTokenMap := make(map[common.Address]common.Address)
-
-	s.m.Lock()
-	symbols := copySymbols(s.symbols)
-	tokens := copyTokens(s.tokens)
-	s.m.Unlock()
-
-	for symbol, token := range tokens {
-		if symbol != "vCAN" {
-			OracleToVTokenMap[token.Oracle] = token.Address
-		}
-	}
-
-	for {
-		select {
-		case <-s.quitCh:
-			return
-
-		case txHash := <-txPoolTXs:
-			height, _ := s.c.BlockNumber(context.Background())
-			txn, is_pending, err := s.c.TransactionByHash(context.Background(), txHash)
-
-			if err == nil && txn != nil && txn.To() != nil && is_pending == true {
-				vTokenAddress, ok := OracleToVTokenMap[*txn.To()]
-				if !ok || len(txn.Data()) < 5 {
-					continue
-				}
-
-				method, err := aggregatorABI.MethodById(txn.Data()[0:4])
-				if err != nil {
-					continue
-				}
-
-				if method.Name == "transmit" {
-					inputData := make(map[string]interface{})
-					err = method.Inputs.UnpackIntoMap(inputData, txn.Data()[4:])
-					if err != nil {
-						continue
-					}
-
-					data := inputData["_report"].([]byte)
-					numbering := data[32+32+32+32:]
-					midpos := len(numbering) / 32 / 2
-					numberingmid := numbering[midpos*32 : midpos*32+32]
-					bigFeededPrice := big.NewInt(0).SetBytes(numberingmid)
-
-					symobl := symbols[vTokenAddress]
-					decimalDelta := 10 + 18 - tokens[symobl].UnderlyingDecimals //VenusChainlinkOracle.sol line46
-
-					feededPrice := &FeededPrice{
-						Symbol:   symobl,
-						Address:  vTokenAddress,
-						Price:    decimal.NewFromBigInt(bigFeededPrice, int32(decimalDelta)),
-						Hash:     txHash,
-						GasPrice: decimal.NewFromBigInt(txn.GasPrice(), 0),
-						Height:   height,
-					}
-
-					logger.Printf("catch feedPrice, height:%v, symbol:%v, price:%+v\n", height, symobl, feededPrice)
-					s.feededPriceCh <- feededPrice
-				}
-			}
-		}
-	}
-}
+//Monitoring TxPoolLoop to get the feed price in pending tx
+//func (s *Syncer) MonitorTxPoolLoop() {
+//	defer s.wg.Done()
+//
+//	v := reflect.ValueOf(s.c).Elem()
+//	f := v.FieldByName("c")
+//	rf := reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem()
+//	concrete_client, _ := rf.Interface().(*rpc.Client)
+//
+//	txPoolTXs := make(chan common.Hash, 2048)
+//	concrete_client.EthSubscribe(
+//		context.Background(), txPoolTXs, "newPendingTransactions",
+//	)
+//	aggregatorABI, _ := venus.AggregatorMetaData.GetAbi()
+//	OracleToVTokenMap := make(map[common.Address]common.Address)
+//
+//	s.m.Lock()
+//	symbols := copySymbols(s.symbols)
+//	tokens := copyTokens(s.tokens)
+//	s.m.Unlock()
+//
+//	for symbol, token := range tokens {
+//		if symbol != "vCAN" {
+//			OracleToVTokenMap[token.Oracle] = token.Address
+//		}
+//	}
+//
+//	for {
+//		select {
+//		case <-s.quitCh:
+//			return
+//
+//		case txHash := <-txPoolTXs:
+//			height, _ := s.c.BlockNumber(context.Background())
+//			txn, is_pending, err := s.c.TransactionByHash(context.Background(), txHash)
+//
+//			if err == nil && txn != nil && txn.To() != nil && is_pending == true {
+//				vTokenAddress, ok := OracleToVTokenMap[*txn.To()]
+//				if !ok || len(txn.Data()) < 5 {
+//					continue
+//				}
+//
+//				method, err := aggregatorABI.MethodById(txn.Data()[0:4])
+//				if err != nil {
+//					continue
+//				}
+//
+//				if method.Name == "transmit" {
+//					inputData := make(map[string]interface{})
+//					err = method.Inputs.UnpackIntoMap(inputData, txn.Data()[4:])
+//					if err != nil {
+//						continue
+//					}
+//
+//					data := inputData["_report"].([]byte)
+//					numbering := data[32+32+32+32:]
+//					midpos := len(numbering) / 32 / 2
+//					numberingmid := numbering[midpos*32 : midpos*32+32]
+//					bigFeededPrice := big.NewInt(0).SetBytes(numberingmid)
+//
+//					symobl := symbols[vTokenAddress]
+//					decimalDelta := 10 + 18 - tokens[symobl].UnderlyingDecimals //VenusChainlinkOracle.sol line46
+//
+//					feededPrice := &FeededPrice{
+//						Symbol:   symobl,
+//						Address:  vTokenAddress,
+//						Price:    decimal.NewFromBigInt(bigFeededPrice, int32(decimalDelta)),
+//						Hash:     txHash,
+//						GasPrice: decimal.NewFromBigInt(txn.GasPrice(), 0),
+//						Height:   height,
+//					}
+//
+//					logger.Printf("catch feedPrice, height:%v, symbol:%v, price:%+v\n", height, symobl, feededPrice)
+//					s.feededPriceCh <- feededPrice
+//				}
+//			}
+//		}
+//	}
+//}
 
 func (s *Syncer) PrintConcernedAccountInfoLoop() {
 	defer s.wg.Done()
@@ -996,7 +1042,7 @@ func (s *Syncer) syncOneAccount(account common.Address) error {
 		symbol := symbols[market]
 		collateralFactor := tokens[symbol].CollateralFactor
 		price := tokens[symbol].Price
-		if tokens[symbol].FeedPriceUpdateHeihgt+FeedPriceUpdateInterval > tokens[symbol].PriceUpdateHeight {
+		if tokens[symbol].FeedPriceUpdateHeihgt+FeedPriceUpdateInterval > tokens[symbol].PriceUpdatedHeight {
 			price = tokens[symbol].FeededPrice
 			fakedFeedPrice = &FeededPrice{
 				Symbol: symbol,
@@ -1128,7 +1174,7 @@ func (s *Syncer) syncOneAccountWithFeededPrice(account common.Address, feededPri
 
 		//use latest price even it is pending
 		price := tokens[symbol].Price
-		if tokens[symbol].FeedPriceUpdateHeihgt+FeedPriceUpdateInterval > tokens[symbol].PriceUpdateHeight {
+		if tokens[symbol].FeedPriceUpdateHeihgt+FeedPriceUpdateInterval > tokens[symbol].PriceUpdatedHeight {
 			price = tokens[symbol].FeededPrice
 		}
 
@@ -1357,7 +1403,7 @@ func (s *Syncer) processLiquidationReq(liquidation *Liquidation) error {
 	//	collateralFactor := tokens[symbol].CollateralFactor
 	//	price := tokens[symbol].Price
 	//
-	//	if tokens[symbol].FeedPriceUpdateHeihgt > tokens[symbol].PriceUpdateHeight {
+	//	if tokens[symbol].FeedPriceUpdateHeihgt > tokens[symbol].PriceUpdatedHeight {
 	//		withFeedPrice = true
 	//		price = tokens[symbol].FeededPrice
 	//	}
@@ -1909,6 +1955,65 @@ func (s *Syncer) storeAccount(account common.Address, info AccountInfo) {
 	db.Put(dbm.BorrowersStoreKey(accountBytes), accountBytes, nil)
 }
 
+func newMarket(c *ethclient.Client, comptroller *venus.Comptroller, oracle *venus.PriceOracle, market common.Address) (*TokenInfo, *TokenPrice, error) {
+	vbep20, err := venus.NewVbep20(market, c) //vBep20
+	if err != nil {
+		return nil, nil, err
+	}
+
+	symbol, err := vbep20.Symbol(nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	marketDetail, err := comptroller.Markets(nil, market)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	bigPrice, err := oracle.GetUnderlyingPrice(nil, market)
+	if err != nil {
+		bigPrice = big.NewInt(0)
+	}
+	var underlyingAddress common.Address
+	if market == vBNBAddress {
+		underlyingAddress = wBNBAddress
+	} else {
+		underlyingAddress, err = vbep20.Underlying(nil)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	bep20, err := venus.NewVbep20(underlyingAddress, c)
+	underlyingDecimals, err := bep20.Decimals(nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	collateralFactor := decimal.NewFromBigInt(marketDetail.CollateralFactorMantissa, 0)
+	price := decimal.NewFromBigInt(bigPrice, 0)
+
+	height, err := c.BlockNumber(context.Background())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	tokenInfo := &TokenInfo{
+		Symbol:             symbol,
+		Address:            market,
+		UnderlyingAddress:  underlyingAddress,
+		UnderlyingDecimals: underlyingDecimals,
+		CollateralFactor:   collateralFactor,
+	}
+	tokenPrice := &TokenPrice{
+		Price:              price,
+		PriceUpdatedHeight: height,
+	}
+
+	return tokenInfo, tokenPrice, nil
+}
+
 func copySymbols(src map[common.Address]string) map[common.Address]string {
 	dst := make(map[common.Address]string)
 	for k, v := range src {
@@ -1917,8 +2022,8 @@ func copySymbols(src map[common.Address]string) map[common.Address]string {
 	return dst
 }
 
-func copyTokens(src map[string]*TokenInfo) map[string]*TokenInfo {
-	dst := make(map[string]*TokenInfo)
+func copyTokens(src map[common.Address]*TokenInfo) map[common.Address]*TokenInfo {
+	dst := make(map[common.Address]*TokenInfo)
 	for k, v := range src {
 		dst[k] = v
 	}
@@ -2328,3 +2433,5 @@ func (info *ConcernedAccountInfo) toReadable() ConcernedAccountInfo {
 	readableInfo.AccInfo = info.AccInfo.toReadable()
 	return readableInfo
 }
+
+func (info *Asset) toReadable() Asset {

@@ -45,6 +45,9 @@ func JoinedMarketMemberStoreKey(account []byte, address []byte) []byte {
 	return append(bz, address...)
 }
 
+func SupportMarketMemberStoreKey(address []byte) []byte {
+	return append(SupportMarketPrefix, address...)
+}
 func MarketMemberStoreKey(address []byte, account []byte) []byte {
 	bz := append(MarketMemberPrefix, address...)
 	return append(bz, account...)
