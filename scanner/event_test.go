@@ -28,9 +28,10 @@ func TestSupportMarketEvent_46341448(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, len(logs), 1)
 
-	market, err := decodeMarketListed(logs[0])
+	event, err := decodeMarketListed(logs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, "0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591", market.Hex())
+	assert.Equal(t, "0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591", event.Market.Hex())
+	assert.EqualValues(t, 46341448, event.UpdatedHeight)
 }
 
 func TestNewCloseFactorEvent_46341424(t *testing.T) {
@@ -50,9 +51,10 @@ func TestNewCloseFactorEvent_46341424(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, len(logs), 1)
 
-	closeFactor, err := decodeNewCloseFactor(logs[0])
+	event, err := decodeNewCloseFactor(logs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, "500000000000000000", closeFactor.String())
+	assert.Equal(t, "500000000000000000", event.CloseFactor.String())
+	assert.EqualValues(t, 46341424, event.UpdatedHeight)
 }
 
 func TestNewCollateralFactorEvent_46341454(t *testing.T) {
@@ -71,10 +73,11 @@ func TestNewCollateralFactorEvent_46341454(t *testing.T) {
 	logs, err := c.FilterLogs(context.Background(), filter)
 	assert.NoError(t, err)
 
-	address, closeFactor, err := decodeNewCollateralFactor(logs[0])
+	event, err := decodeNewCollateralFactor(logs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, "0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591", address.Hex())
-	assert.Equal(t, "800000000000000000", closeFactor.String())
+	assert.Equal(t, "0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591", event.Market.Hex())
+	assert.Equal(t, "800000000000000000", event.CollateralFactor.String())
+	assert.EqualValues(t, 46341454, event.UpdatedHeight)
 }
 
 func TestMarketEnteredEvent_46388955(t *testing.T) {
@@ -94,10 +97,11 @@ func TestMarketEnteredEvent_46388955(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(logs))
 
-	address, account, err := decodeMarketEntered(logs[0])
+	event, err := decodeMarketEntered(logs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, "0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28", address.Hex())
-	assert.Equal(t, "0xc6B21654b936188158b788Ada6679f1c3463293c", account.Hex())
+	assert.Equal(t, "0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28", event.Market.Hex())
+	assert.Equal(t, "0xc6B21654b936188158b788Ada6679f1c3463293c", event.Account.Hex())
+	assert.EqualValues(t, 46388955, event.UpdatedHeight)
 }
 
 func TestMarketExited_46389092(t *testing.T) {
@@ -117,10 +121,11 @@ func TestMarketExited_46389092(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(logs))
 
-	address, account, err := decodeMarketExited(logs[0])
+	event, err := decodeMarketExited(logs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, "0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591", address.Hex())
-	assert.Equal(t, "0xc6B21654b936188158b788Ada6679f1c3463293c", account.Hex())
+	assert.Equal(t, "0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591", event.Market.Hex())
+	assert.Equal(t, "0xc6B21654b936188158b788Ada6679f1c3463293c", event.Account.Hex())
+	assert.EqualValues(t, 46389092, event.UpdatedHeight)
 }
 
 func TestMintVaiEvent_46372737(t *testing.T) {
@@ -139,10 +144,11 @@ func TestMintVaiEvent_46372737(t *testing.T) {
 	logs, err := c.FilterLogs(context.Background(), filter)
 	assert.NoError(t, err)
 
-	address, amount, err := decodeMintVAI(logs[0])
+	event, err := decodeMintVAI(logs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, "0x1EE399b35337505DAFCE451a3311ed23Ee023885", address.Hex())
-	assert.Equal(t, "32000000000000000000", amount.String())
+	assert.Equal(t, "0x1EE399b35337505DAFCE451a3311ed23Ee023885", event.Account.Hex())
+	assert.Equal(t, "32000000000000000000", event.Amount.String())
+	assert.EqualValues(t, 46372737, event.UpdatedHeight)
 }
 
 func TestRepayVaiEvent_46373178(t *testing.T) {
@@ -161,10 +167,11 @@ func TestRepayVaiEvent_46373178(t *testing.T) {
 	logs, err := c.FilterLogs(context.Background(), filter)
 	assert.NoError(t, err)
 
-	address, amount, err := decodeRepayVAI(logs[0])
+	event, err := decodeRepayVAI(logs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, "0x1EE399b35337505DAFCE451a3311ed23Ee023885", address.Hex())
-	assert.Equal(t, "16000000000000000000", amount.String())
+	assert.Equal(t, "0x1EE399b35337505DAFCE451a3311ed23Ee023885", event.Account.Hex())
+	assert.Equal(t, "16000000000000000000", event.Amount.String())
+	assert.EqualValues(t, 46373178, event.UpdatedHeight)
 }
 
 func TestLiquidateVaiEvent_46373178(t *testing.T) {
@@ -209,11 +216,12 @@ func TestVUSDTMintEvent_46359438(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, len(logs), 1)
 
-	from, to, amount, err := decodeVTokenTransfer(logs[0])
+	event, err := decodeVTokenTransfer(logs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, "0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591", from.Hex())
-	assert.Equal(t, "0x658a6c7962e64132d2487EB2bc431d8Bc285882F", to.Hex())
-	assert.Equal(t, "100000000000000000000", amount.String())
+	assert.Equal(t, "0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591", event.From.Hex())
+	assert.Equal(t, "0x658a6c7962e64132d2487EB2bc431d8Bc285882F", event.To.Hex())
+	assert.Equal(t, "100000000000000000000", event.Amount.String())
+	assert.EqualValues(t, 46359438, event.UpdatedHeight)
 }
 
 func TestVUSDTRedeem_46372646(t *testing.T) {
@@ -234,11 +242,12 @@ func TestVUSDTRedeem_46372646(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, len(logs), 1)
 
-	from, to, amount, err := decodeVTokenTransfer(logs[0])
+	event, err := decodeVTokenTransfer(logs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, "0x1EE399b35337505DAFCE451a3311ed23Ee023885", from.Hex())
-	assert.Equal(t, "0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591", to.Hex())
-	assert.Equal(t, "20000000000000000000", amount.String())
+	assert.Equal(t, "0x1EE399b35337505DAFCE451a3311ed23Ee023885", event.From.Hex())
+	assert.Equal(t, "0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591", event.To.Hex())
+	assert.Equal(t, "20000000000000000000", event.Amount.String())
+	assert.EqualValues(t, 46372646, event.UpdatedHeight)
 }
 
 func TestVUSDTTransfer_46486375(t *testing.T) {
@@ -259,11 +268,12 @@ func TestVUSDTTransfer_46486375(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, len(logs), 1)
 
-	from, to, amount, err := decodeVTokenTransfer(logs[0])
+	event, err := decodeVTokenTransfer(logs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, "0x1EE399b35337505DAFCE451a3311ed23Ee023885", from.Hex())
-	assert.Equal(t, "0x658a6c7962e64132d2487EB2bc431d8Bc285882F", to.Hex())
-	assert.Equal(t, "100000000000000000000", amount.String())
+	assert.Equal(t, "0x1EE399b35337505DAFCE451a3311ed23Ee023885", event.From.Hex())
+	assert.Equal(t, "0x658a6c7962e64132d2487EB2bc431d8Bc285882F", event.To.Hex())
+	assert.Equal(t, "100000000000000000000", event.Amount.String())
+	assert.EqualValues(t, 46486375, event.UpdatedHeight)
 }
 
 /*

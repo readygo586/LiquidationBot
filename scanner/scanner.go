@@ -16,6 +16,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"time"
 )
 
 var logger = log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lmicroseconds)
@@ -28,44 +29,65 @@ type TokenInfo struct {
 	UnderlyingAddress  common.Address
 	UnderlyingDecimals uint8
 	CollateralFactor   decimal.Decimal
+	UpdatedHeight      uint64
 }
 
 type TokenPrice struct {
-	Price              decimal.Decimal
-	PriceUpdatedHeight uint64
+	Price         decimal.Decimal
+	UpdatedHeight uint64
+}
+
+type CloseFactor struct {
+	Factor        decimal.Decimal
+	UpdatedHeight uint64
 }
 
 type PriceChanged struct {
-	Market common.Address
-	Price  decimal.Decimal
-	Height uint64
+	Market        common.Address
+	Price         decimal.Decimal
+	UpdatedHeight uint64
+}
+
+type NewMarket struct {
+	Market        common.Address
+	UpdatedHeight uint64
+}
+
+type CloseFactorChanged struct {
+	CloseFactor   decimal.Decimal
+	UpdatedHeight uint64
 }
 
 type CollateralFactorChanged struct {
 	Market           common.Address
 	CollateralFactor decimal.Decimal
+	UpdatedHeight    uint64
 }
 
 type EnterMarket struct {
-	Market  common.Address
-	Account common.Address
+	Market        common.Address
+	Account       common.Address
+	UpdatedHeight uint64
 }
 
 type ExitMarket struct {
-	Market  common.Address
-	Account common.Address
+	Market        common.Address
+	Account       common.Address
+	UpdatedHeight uint64
 }
 
 type RepayVaiAmountChanged struct {
-	Account common.Address
-	Amount  decimal.Decimal
+	Account       common.Address
+	Amount        decimal.Decimal
+	UpdatedHeight uint64
 }
 
 type VTokenAmountChanged struct {
-	Market common.Address
-	From   common.Address
-	To     common.Address
-	Amount decimal.Decimal
+	Market        common.Address
+	From          common.Address
+	To            common.Address
+	Amount        decimal.Decimal
+	UpdatedHeight uint64
 }
 
 type Scanner struct {
@@ -77,8 +99,7 @@ type Scanner struct {
 	vaiController *venus.VaiController
 	vai           *venus.Vai
 	oracle        *venus.PriceOracle
-	closeFactor   decimal.Decimal
-
+	closeFactor   *CloseFactor
 	//token info
 	markets []common.Address
 	tokens  map[common.Address]*TokenInfo
@@ -95,8 +116,8 @@ type Scanner struct {
 	m                         sync.Mutex
 	wg                        sync.WaitGroup
 	quitCh                    chan struct{}
-	newMarketCh               chan common.Address
-	closeFactorChangedCh      chan decimal.Decimal
+	newMarketCh               chan *NewMarket
+	closeFactorChangedCh      chan *CloseFactorChanged
 	collateralFactorChangedCh chan *CollateralFactorChanged
 	enterMarketCh             chan *EnterMarket
 	exitMarketCh              chan *ExitMarket
@@ -148,13 +169,6 @@ func NewScanner(
 		panic(err)
 	}
 
-	bigCloseFactor, err := comptroller.CloseFactorMantissa(nil)
-	if err != nil {
-		panic(err)
-	}
-
-	closeFactor := decimal.NewFromBigInt(bigCloseFactor, 0)
-
 	vaiController, err := venus.NewVaiController(common.HexToAddress(_vaiController), c)
 	if err != nil {
 		panic(err)
@@ -186,7 +200,7 @@ func NewScanner(
 		panic(err)
 	}
 
-	//collect all markets information parrallel
+	//collect all markets information in parrallel
 	tokens := make(map[common.Address]*TokenInfo)
 	prices := make(map[common.Address]*TokenPrice)
 	vbep20s := make(map[common.Address]*venus.Vbep20)
@@ -221,6 +235,11 @@ func NewScanner(
 	}
 	wg.Wait()
 
+	height, err := c.BlockNumber(context.Background())
+	if err != nil {
+		panic(err)
+	}
+
 	//special processing for vai
 	{
 		vaiSymbol, err := vai.Symbol(nil)
@@ -239,11 +258,22 @@ func NewScanner(
 			UnderlyingAddress:  common.HexToAddress(_vai),
 			UnderlyingDecimals: vaiDecimals,
 			CollateralFactor:   decimal.Zero,
+			UpdatedHeight:      height,
 		}
 
 		prices[common.HexToAddress(_vai)] = &TokenPrice{
 			Price: decimal.New(1, 18),
 		}
+	}
+
+	_closeFactor, err := comptroller.CloseFactorMantissa(nil)
+	if err != nil {
+		panic(err)
+	}
+
+	closeFactor := &CloseFactor{
+		Factor:        decimal.NewFromBigInt(_closeFactor, 0),
+		UpdatedHeight: height,
 	}
 
 	_vaiBalance, err := vai.BalanceOf(nil, account)
@@ -276,9 +306,9 @@ func NewScanner(
 		vaiBalance:                vaiBalance,
 		m:                         m,
 		quitCh:                    make(chan struct{}),
-		newMarketCh:               make(chan common.Address, 64),
-		closeFactorChangedCh:      make(chan decimal.Decimal, 8),
-		collateralFactorChangedCh: make(chan *CollateralFactorChanged, 8),
+		newMarketCh:               make(chan *NewMarket, 2),
+		closeFactorChangedCh:      make(chan *CloseFactorChanged, 2),
+		collateralFactorChangedCh: make(chan *CollateralFactorChanged, 2),
 		repayVaiAmountChangedCh:   make(chan *RepayVaiAmountChanged, 1024),
 		vTokenAmountChangedCh:     make(chan *VTokenAmountChanged, 1024),
 		priceChangedCh:            make(chan *PriceChanged, 1024),
@@ -322,8 +352,11 @@ func (s *Scanner) NewMarketLoop() {
 		case <-s.quitCh:
 			return
 
-		case market := <-s.newMarketCh:
+		case event := <-s.newMarketCh:
+			//since there is no method to remove a listed market, a history listed market must exist now
+			logger.Printf("NewMarketLoop, new market:%v\n", event)
 			exist := false
+			market := event.Market
 			for _, _market := range s.markets {
 				if _market == market {
 					exist = true
@@ -334,18 +367,17 @@ func (s *Scanner) NewMarketLoop() {
 			if !exist {
 				token, price, err := newMarket(s.c, s.comptroller, s.oracle, market)
 				if err != nil {
-					logger.Fatalf("fail to add newMarket %v err:%v", market, err)
+					logger.Printf("fail to add newMarket:%v err:%v", market, err)
+					time.Sleep(5 * time.Second)
+					logger.Printf("retry to add newMarket:%v event:%v", market, event)
+					s.newMarketCh <- event //retry
+				} else {
+					s.m.Lock()
+					s.markets = append(s.markets, market)
+					s.tokens[market] = token
+					s.prices[market] = price
+					s.m.Unlock()
 				}
-
-				//TODO(keep), store the markets or not
-				//db := s.db
-				//db.Put(dbm.MarketStoreKey(market.Bytes()), market.Bytes(), nil)
-
-				s.m.Lock()
-				s.markets = append(s.markets, market)
-				s.tokens[market] = token
-				s.prices[market] = price
-				s.m.Unlock()
 			}
 		}
 	}
@@ -358,11 +390,17 @@ func (s *Scanner) CloseFactorLoop() {
 		select {
 		case <-s.quitCh:
 			return
-		case newCloseFactor := <-s.closeFactorChangedCh:
-			s.m.Lock()
-			s.closeFactor = newCloseFactor
-			s.m.Unlock()
-
+		case event := <-s.closeFactorChangedCh:
+			logger.Printf("CloseFactorLoop, new closeFactor:%v\n", event)
+			if event.UpdatedHeight > s.closeFactor.UpdatedHeight {
+				//only update closeFactor if event.UpdatedHeight > s.closeFactor.UpdatedHeight
+				s.m.Lock()
+				s.closeFactor = &CloseFactor{
+					Factor:        event.CloseFactor,
+					UpdatedHeight: event.UpdatedHeight,
+				}
+				s.m.Unlock()
+			}
 		}
 	}
 }
@@ -376,20 +414,18 @@ func (s *Scanner) CollateralFactorLoop() {
 		case <-s.quitCh:
 			return
 
-		case newFactor := <-s.collateralFactorChangedCh:
-			if s.tokens[newFactor.Market] == nil {
-				log.Fatalf("fail to find market %v", newFactor.Market)
+		case event := <-s.collateralFactorChangedCh:
+			logger.Printf("CollateralFactorLoop, new collateralFactor:%v\n", event)
+			if s.tokens[event.Market] == nil {
+				log.Fatalf("fail to find market %v", event.Market)
 			}
 
-			s.m.Lock()
-			oldCollateralFactor := s.tokens[newFactor.Market].CollateralFactor
-			s.tokens[newFactor.Market].CollateralFactor = newFactor.CollateralFactor
-			s.m.Unlock()
-
-			//if new collateralFactor is less than oldCollateralFactor, then recalculate all affected accounts health factor
-			if oldCollateralFactor.GreaterThan(newFactor.CollateralFactor) {
+			market := event.Market
+			if event.UpdatedHeight > s.tokens[market].UpdatedHeight {
+				//collect affected accounts, and recalculate their health factor
 				var accounts []common.Address
-				iter := db.NewIterator(util.BytesPrefix(dbm.MarketMemberPrefix), nil)
+				prefix := append(dbm.MarketMemberPrefix, market.Bytes()...)
+				iter := db.NewIterator(util.BytesPrefix(prefix), nil)
 				for iter.Next() {
 					accounts = append(accounts, common.BytesToAddress(iter.Value()))
 				}
@@ -398,6 +434,11 @@ func (s *Scanner) CollateralFactorLoop() {
 				for _, account := range accounts {
 					s.highAccountSyncCh <- account
 				}
+
+				s.m.Lock()
+				s.tokens[market].CollateralFactor = event.CollateralFactor
+				s.tokens[market].UpdatedHeight = event.UpdatedHeight
+				s.m.Unlock()
 			}
 		}
 	}
@@ -412,10 +453,12 @@ func (s *Scanner) EnterMarketLoop() {
 		case <-s.quitCh:
 			return
 
-		case enter := <-s.enterMarketCh:
-			market := enter.Market.Bytes()
-			account := enter.Account.Bytes()
+		case event := <-s.enterMarketCh:
+			logger.Printf("EnterMarketLoop:%v\n", event)
+			market := event.Market.Bytes()
+			account := event.Account.Bytes()
 			db.Put(dbm.MarketMemberStoreKey(market, account), account, nil)
+			s.highAccountSyncCh <- event.Account
 		}
 	}
 }
@@ -429,25 +472,29 @@ func (s *Scanner) ExitMarketLoop() {
 		case <-s.quitCh:
 			return
 
-		case exit := <-s.exitMarketCh:
-			market := exit.Market.Bytes()
-			account := exit.Account.Bytes()
+		case event := <-s.exitMarketCh:
+			logger.Printf("ExistMarketLoop:%v\n", event)
+			market := event.Market.Bytes()
+			account := event.Account.Bytes()
 			db.Delete(dbm.MarketMemberStoreKey(market, account), nil)
+			s.highAccountSyncCh <- event.Account
 		}
 	}
 }
 
 func (s *Scanner) RepayVaiAmountChangedLoop() {
+	db := s.db
 	defer s.wg.Done()
 
 	for {
 		select {
 		case <-s.quitCh:
 			return
-		case change := <-s.repayVaiAmountChangedCh:
-			if change.Amount.IsPositive() {
-				s.highAccountSyncCh <- change.Account
-			}
+
+		case event := <-s.repayVaiAmountChangedCh:
+			logger.Printf("RepayVaiAmountChangedLoop:%v\n", event)
+			db.Put(dbm.BorrowersStoreKey(event.Account.Bytes()), event.Account.Bytes(), nil)
+			s.highAccountSyncCh <- event.Account
 		}
 	}
 }
@@ -460,10 +507,11 @@ func (s *Scanner) VTokenAmountChangedLoop() {
 		select {
 		case <-s.quitCh:
 			return
-		case change := <-s.vTokenAmountChangedCh:
-			//market := change.Market
-			from := change.From
-			//to := change.To
+
+		case event := <-s.vTokenAmountChangedCh:
+			logger.Printf("VTokenAmountChangedLoop:%v\n", event)
+			from := event.From
+			to := event.To
 
 			had, err := db.Has(dbm.BorrowersStoreKey(from.Bytes()), nil)
 			if err != nil {
@@ -471,6 +519,14 @@ func (s *Scanner) VTokenAmountChangedLoop() {
 			}
 			if had {
 				s.highAccountSyncCh <- from
+			}
+
+			had, err = db.Has(dbm.BorrowersStoreKey(to.Bytes()), nil)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if had {
+				s.highAccountSyncCh <- to
 			}
 		}
 	}
@@ -484,18 +540,28 @@ func (s *Scanner) PriceChangedLoop() {
 		select {
 		case <-s.quitCh:
 			return
-		case change := <-s.priceChangedCh:
-			market := change.Market
-			var accounts []common.Address
-			prefix := append(dbm.MarketMemberPrefix, market.Bytes()...)
-			iter := db.NewIterator(util.BytesPrefix(prefix), nil)
-			for iter.Next() {
-				accounts = append(accounts, common.BytesToAddress(iter.Value()))
-			}
-			iter.Release()
+		case event := <-s.priceChangedCh:
+			logger.Printf("PriceChangedLoop:%v\n", event)
+			if event.UpdatedHeight > s.prices[event.Market].UpdatedHeight {
+				market := event.Market
 
-			for _, account := range accounts {
-				s.highAccountSyncCh <- account
+				//collect affected accounts, and recalculate their health factor
+				var accounts []common.Address
+				prefix := append(dbm.MarketMemberPrefix, market.Bytes()...)
+				iter := db.NewIterator(util.BytesPrefix(prefix), nil)
+				for iter.Next() {
+					accounts = append(accounts, common.BytesToAddress(iter.Value()))
+				}
+				iter.Release()
+
+				for _, account := range accounts {
+					s.highAccountSyncCh <- account
+				}
+
+				s.m.Lock()
+				s.prices[market].Price = event.Price
+				s.prices[market].UpdatedHeight = event.UpdatedHeight
+				s.m.Unlock()
 			}
 		}
 	}
@@ -551,10 +617,11 @@ func newMarket(c *ethclient.Client, comptroller *venus.Comptroller, oracle *venu
 		UnderlyingAddress:  underlyingAddress,
 		UnderlyingDecimals: underlyingDecimals,
 		CollateralFactor:   collateralFactor,
+		UpdatedHeight:      height,
 	}
 	tokenPrice := &TokenPrice{
-		Price:              price,
-		PriceUpdatedHeight: height,
+		Price:         price,
+		UpdatedHeight: height,
 	}
 
 	return tokenInfo, tokenPrice, nil

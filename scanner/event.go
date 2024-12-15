@@ -73,7 +73,7 @@ func buildVTokenQueryWithoutHeight(addresses []common.Address) ethereum.FilterQu
 	}
 }
 
-func decodeMarketListed(log types.Log) (*common.Address, error) {
+func decodeMarketListed(log types.Log) (*NewMarket, error) {
 	topics := log.Topics
 	data := log.Data
 
@@ -81,110 +81,153 @@ func decodeMarketListed(log types.Log) (*common.Address, error) {
 		return nil, fmt.Errorf("invalid topic")
 	}
 	market := common.BytesToAddress(data[0:32])
-	return &market, nil
+	return &NewMarket{
+		Market:        market,
+		UpdatedHeight: log.BlockNumber,
+	}, nil
 }
 
-func decodeNewCloseFactor(log types.Log) (*big.Int, error) {
+func decodeNewCloseFactor(log types.Log) (*CloseFactorChanged, error) {
 	topics := log.Topics
 	data := log.Data
 
 	if topics[0].Hex() != NewCloseFactor || len(topics) != 1 {
 		return nil, fmt.Errorf("invalid topic")
 	}
-	closeFaFactor := big.NewInt(0).SetBytes(data[32:64])
-	return closeFaFactor, nil
+	closeFactor := big.NewInt(0).SetBytes(data[32:64])
+	return &CloseFactorChanged{
+		CloseFactor:   decimal.NewFromBigInt(closeFactor, 0),
+		UpdatedHeight: log.BlockNumber,
+	}, nil
 }
 
-func decodeNewCollateralFactor(log types.Log) (*common.Address, *big.Int, error) {
+func decodeNewCollateralFactor(log types.Log) (*CollateralFactorChanged, error) {
 	topics := log.Topics
 	data := log.Data
 
 	if topics[0].Hex() != NewCollateralFactor || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
+		return nil, fmt.Errorf("invalid topic")
 	}
 
 	market := common.BytesToAddress(data[0:32])
 	collateralFactor := big.NewInt(0).SetBytes(data[64:96])
-	return &market, collateralFactor, nil
+	return &CollateralFactorChanged{
+		Market:           market,
+		CollateralFactor: decimal.NewFromBigInt(collateralFactor, 0),
+		UpdatedHeight:    log.BlockNumber,
+	}, nil
 }
 
-func decodeMarketEntered(log types.Log) (*common.Address, *common.Address, error) {
+func decodeMarketEntered(log types.Log) (*EnterMarket, error) {
 	topics := log.Topics
 	data := log.Data
 
 	if topics[0].Hex() != MarketEntered || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
+		return nil, fmt.Errorf("invalid topic")
 	}
 
 	market := common.BytesToAddress(data[0:32])
 	account := common.BytesToAddress(data[32:64])
-	return &market, &account, nil
+	return &EnterMarket{
+		Market:        market,
+		Account:       account,
+		UpdatedHeight: log.BlockNumber,
+	}, nil
 }
 
-func decodeMarketExited(log types.Log) (*common.Address, *common.Address, error) {
+func decodeMarketExited(log types.Log) (*ExitMarket, error) {
 	topics := log.Topics
 	data := log.Data
 
 	if topics[0].Hex() != MarketExited || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
+		return nil, fmt.Errorf("invalid topic")
 	}
 
 	market := common.BytesToAddress(data[0:32])
 	account := common.BytesToAddress(data[32:64])
-	return &market, &account, nil
-
+	return &ExitMarket{
+		Market:        market,
+		Account:       account,
+		UpdatedHeight: log.BlockNumber,
+	}, nil
 }
 
-func decodeMintVAI(log types.Log) (*common.Address, *big.Int, error) {
+func decodeMintVAI(log types.Log) (*RepayVaiAmountChanged, error) {
 	topics := log.Topics
 	data := log.Data
 
 	if topics[0].Hex() != MintVAI || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
+		return nil, fmt.Errorf("invalid topic")
 	}
 
-	address := common.BytesToAddress(data[0:32])
+	account := common.BytesToAddress(data[0:32])
 	amount := big.NewInt(0).SetBytes(data[32:64])
-	return &address, amount, nil
+	return &RepayVaiAmountChanged{
+		Account:       account,
+		Amount:        decimal.NewFromBigInt(amount, 0),
+		UpdatedHeight: log.BlockNumber,
+	}, nil
 }
 
-func decodeRepayVAI(log types.Log) (*common.Address, *big.Int, error) {
+func decodeRepayVAI(log types.Log) (*RepayVaiAmountChanged, error) {
 	topics := log.Topics
 	data := log.Data
 
 	if topics[0].Hex() != RepayVAI || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
+		return nil, fmt.Errorf("invalid topic")
 	}
 
-	address := common.BytesToAddress(data[32:64])
+	account := common.BytesToAddress(data[32:64])
 	amount := big.NewInt(0).SetBytes(data[64:96])
-	return &address, amount, nil
+	return &RepayVaiAmountChanged{
+		Account:       account,
+		Amount:        decimal.NewFromBigInt(amount, 0),
+		UpdatedHeight: log.BlockNumber,
+	}, nil
 }
 
-func decodeLiquidateVAI(log types.Log) (*common.Address, *big.Int, error) {
-	topics := log.Topics
-	data := log.Data
-
-	if topics[0].Hex() != LiquidateVAI || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
-	}
-
-	address := common.BytesToAddress(data[32:64])
-	amount := big.NewInt(0).SetBytes(data[64:96])
-	return &address, amount, nil
+func decodeLiquidateVAI(log types.Log) (*VTokenAmountChanged, error) {
+	panic("not implemented, in liquidation, borrower's vToken changed is covered by vToken's transfer event")
+	//in liquidation, borrower's vToken changed is covered by vToken's transfer event
+	//topics := log.Topics
+	//data := log.Data
+	//
+	//if topics[0].Hex() != LiquidateVAI || len(topics) != 1 {
+	//	return nil, fmt.Errorf("invalid topic")
+	//}
+	//
+	//account := common.BytesToAddress(data[32:64])
+	//
+	//amount := big.NewInt(0).SetBytes(data[:96])
+	//return &VTokenAmountChanged{
+	//	Market: common.BytesToAddress(data[96:128]),
+	//
+	//}, nil
+	return nil, nil
 }
 
-func decodeVTokenTransfer(log types.Log) (*common.Address, *common.Address, *big.Int, error) {
+func decodeVTokenTransfer(log types.Log) (*VTokenAmountChanged, error) {
 	topics := log.Topics
 	data := log.Data
 
 	if topics[0].Hex() != Transfer || len(topics) != 3 {
-		return nil, nil, nil, fmt.Errorf("invalid topic")
+		return nil, fmt.Errorf("invalid topic")
 	}
 	from := common.HexToAddress(topics[1].Hex())
 	to := common.HexToAddress(topics[2].Hex())
 	amount := big.NewInt(0).SetBytes(data[0:32])
-	return &from, &to, amount, nil
+
+	return &VTokenAmountChanged{
+		From:          from,
+		To:            to,
+		Amount:        decimal.NewFromBigInt(amount, 0),
+		UpdatedHeight: log.BlockNumber,
+	}, nil
+}
+
+func decodePriceUpdate(log types.Log) (*PriceChanged, error) {
+	panic("not implemented")
+	return nil, nil
 }
 
 /*
@@ -268,89 +311,75 @@ func decodeLiquidateBorrow(log types.Log) (*common.Address, *big.Int, error) {
 */
 
 func (s *Scanner) DecodeLog(log types.Log) error {
+	if log.Removed == true {
+		logger.Printf("log was reverted due to a chain reorganisation: %v\n", log)
+		return nil
+	}
+
 	switch log.Topics[0].Hex() {
 	case MarketListed:
 		market, err := decodeMarketListed(log)
 		if err != nil {
 			return err
 		}
-		s.newMarketCh <- *market
+		s.newMarketCh <- market
 
 	case NewCloseFactor:
 		closeFactor, err := decodeNewCloseFactor(log)
 		if err != nil {
 			return err
 		}
-		s.closeFactor = decimal.NewFromBigInt(closeFactor, 0)
-		s.closeFactorChangedCh <- s.closeFactor
+		s.closeFactorChangedCh <- closeFactor
 
 	case NewCollateralFactor:
-		market, _collateralFactor, err := decodeNewCollateralFactor(log)
+		collateralFactor, err := decodeNewCollateralFactor(log)
 		if err != nil {
 			return err
 		}
-		collateralFactor := decimal.NewFromBigInt(_collateralFactor, 0)
-		s.collateralFactorChangedCh <- &CollateralFactorChanged{
-			Market:           *market,
-			CollateralFactor: collateralFactor,
-		}
+		s.collateralFactorChangedCh <- collateralFactor
 
 	case MarketEntered:
-		account, market, err := decodeMarketEntered(log)
+		enter, err := decodeMarketEntered(log)
 		if err != nil {
 			return err
 		}
-		s.enterMarketCh <- &EnterMarket{
-			Market:  *market,
-			Account: *account,
-		}
+		s.enterMarketCh <- enter
 
 	case MarketExited:
-		account, market, err := decodeMarketExited(log)
+		exit, err := decodeMarketExited(log)
 		if err != nil {
 			return err
 		}
-		s.exitMarketCh <- &ExitMarket{
-			Market:  *market,
-			Account: *account,
-		}
+		s.exitMarketCh <- exit
 
 	case MintVAI:
-		account, amount, err := decodeMintVAI(log)
+		change, err := decodeMintVAI(log)
 		if err != nil {
 			return err
 		}
-		s.repayVaiAmountChangedCh <- &RepayVaiAmountChanged{
-			Account: *account,
-			Amount:  decimal.NewFromBigInt(amount, 0),
-		}
+		s.repayVaiAmountChangedCh <- change
 
 	case RepayVAI:
-		account, _amount, err := decodeRepayVAI(log)
+		change, err := decodeRepayVAI(log)
 		if err != nil {
 			return err
 		}
-		amount := big.NewInt(0).Neg(_amount)
-		s.repayVaiAmountChangedCh <- &RepayVaiAmountChanged{
-			Account: *account,
-			Amount:  decimal.NewFromBigInt(amount, 0),
-		}
+		s.repayVaiAmountChangedCh <- change
 
 	case Transfer:
-		from, to, amount, err := decodeVTokenTransfer(log)
+		change, err := decodeVTokenTransfer(log)
 		if err != nil {
 			return err
 		}
-		s.vTokenAmountChangedCh <- &VTokenAmountChanged{
-			Market: log.Address,
-			From:   *from,
-			To:     *to,
-			Amount: decimal.NewFromBigInt(amount, 0),
-		}
+		s.vTokenAmountChangedCh <- change
 
 	case PriceUpdate:
-		//TODO(keep)
-		panic("TODO")
+		change, err := decodePriceUpdate(log)
+		if err != nil {
+			return err
+		}
+		s.priceChangedCh <- change
+
 	default:
 		return fmt.Errorf("invalid topic")
 	}
