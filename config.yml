@@ -1,12 +1,14 @@
-rpc_url: https://data-seed-prebsc-1-s3.bnbchain.org:8545
+rpc_url: "https://frequent-side-arrow.bsc-testnet.quiknode.pro/d53e466c6ac0b3adaf534a1c641d6264ee4f9886"
 network: testnet
-comptroller : "0xfD36E2c2a6789Db23113685031d7F16329158384"
+comptroller : "0xB4Abb34e08094B1915Ac3f7882aed81d0104b121"
 vai_controller: "0x96ae4986D9ff19992dA84B5DBA9790cAE7246b80"
 vai: "0x7C4f97bF4c28732F9E257B6dF24D12C8Bf43E1f8"
 wbtc: "0x39d770382A22cdb61AD47B6faFC76A872d4fb3e8"
 weth: "0xB167B4136446a07fFbC83946C0F66Fa4289e2953"
-oracle: "0xd8B6dA2bfEC71D684D3E2a2FC9492dDad5C3787F"
-private_key: "811737801d908d6ba78a59b9e705562bcf70ee0f707952c4ad22252599b17738"
-db: maindb
-start_height: 13000000
+vbnb: "0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28"
+wbnb: "0x6B392885f26b718C149f759B591094a06787A289"
+oracle: "0x6B392885f26b718C149f759B591094a06787A289"
+private_key: "329d45df2086825022b2b648fc39ebc4f3edaa0dac7612af86b923f57fd6e26c"
+db: testdb
+start_height: 46341400
 override: false

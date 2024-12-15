@@ -3,7 +3,9 @@ package scanner
 import (
 	"context"
 	"crypto/ecdsa"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/readygo586/LiquidationBot/db"
@@ -95,12 +97,15 @@ type Scanner struct {
 	db *leveldb.DB
 
 	//global setting
-	comptroller   *venus.Comptroller
-	vaiController *venus.VaiController
-	vai           *venus.Vai
-	vaiMarket     common.Address
-	oracle        *venus.PriceOracle
-	closeFactor   *CloseFactor
+	comptrollerAddr   common.Address
+	vaiControllerAddr common.Address
+	oracleAddr        common.Address
+	comptroller       *venus.Comptroller
+	vaiController     *venus.VaiController
+	vai               *venus.Vai
+	oracle            *venus.PriceOracle
+	closeFactor       *CloseFactor
+
 	//token info
 	markets []common.Address
 	tokens  map[common.Address]*TokenInfo
@@ -114,9 +119,11 @@ type Scanner struct {
 	vaiBalance decimal.Decimal
 
 	//mutex, wg and channel
-	m                         sync.Mutex
-	wg                        sync.WaitGroup
-	quitCh                    chan struct{}
+	m      sync.Mutex
+	wg     sync.WaitGroup
+	quitCh chan struct{}
+
+	//event channel
 	newMarketCh               chan *NewMarket
 	closeFactorChangedCh      chan *CloseFactorChanged
 	collateralFactorChangedCh chan *CollateralFactorChanged
@@ -126,17 +133,14 @@ type Scanner struct {
 	vTokenAmountChangedCh     chan *VTokenAmountChanged //collateralAmount change, including mint, redeem, transfer
 	priceChangedCh            chan *PriceChanged
 
+	//four level account sync channels
 	topAccountSyncCh    chan []common.Address
 	highAccountSyncCh   chan []common.Address
 	middleAccountSyncCh chan []common.Address
 	lowAccountSyncCh    chan []common.Address
 
+	//liquidation channel
 	liquidationCh chan *Liquidation
-	//priortyLiquidationCh      chan *Liquidation
-	//concernedAccountInfoCh    chan *ConcernedAccountInfo
-	//backgroundAccountSyncCh   chan common.Address
-	//lowPriorityAccountSyncCh  chan *AccountsWithFeededPrice
-	//highPriorityAccountSyncCh chan *AccountsWithFeededPrice
 }
 
 func init() {
@@ -159,7 +163,6 @@ func NewScanner(
 	_oracle string,
 	_privateKey string,
 ) *Scanner {
-
 	exist, _ := db.Has(dbm.BorrowerNumberKey(), nil)
 	if !exist {
 		db.Put(dbm.BorrowerNumberKey(), big.NewInt(0).Bytes(), nil)
@@ -211,8 +214,7 @@ func NewScanner(
 	wg.Add(len(markets))
 
 	sem := make(semaphore, runtime.NumCPU())
-	for _, _market := range markets {
-		market := _market
+	for _, market := range markets {
 		sem.Acquire()
 		go func() {
 			defer sem.Release()
@@ -287,67 +289,127 @@ func NewScanner(
 	//	panic(err)
 	//}
 	//logger.Printf("vaiBalance:%v, vaiLoan:%v\n", _vaiBalance, _vaiLoan)
-
-	//TODO(fix), calculate health factor ??
-
 	return &Scanner{
-		c:                         c,
-		db:                        db,
-		comptroller:               comptroller,
-		vaiController:             vaiController,
-		vai:                       vai,
-		vaiMarket:                 common.HexToAddress(_vaiController),
-		oracle:                    oracle,
-		closeFactor:               closeFactor,
-		markets:                   markets,
-		tokens:                    tokens,
-		prices:                    prices,
-		vbep20s:                   vbep20s,
-		PrivateKey:                privateKey,
-		Account:                   account,
-		vaiBalance:                vaiBalance,
-		m:                         m,
-		quitCh:                    make(chan struct{}),
-		newMarketCh:               make(chan *NewMarket, 2),
-		closeFactorChangedCh:      make(chan *CloseFactorChanged, 2),
-		collateralFactorChangedCh: make(chan *CollateralFactorChanged, 2),
+		c:  c,
+		db: db,
+
+		comptrollerAddr:   common.HexToAddress(_comptroller),
+		vaiControllerAddr: common.HexToAddress(_vaiController),
+		oracleAddr:        common.HexToAddress(_oracle),
+		comptroller:       comptroller,
+		vaiController:     vaiController,
+		vai:               vai,
+		oracle:            oracle,
+		closeFactor:       closeFactor,
+
+		markets: markets,
+		tokens:  tokens,
+		prices:  prices,
+		vbep20s: vbep20s,
+
+		liquidator: nil,
+		PrivateKey: privateKey,
+		Account:    account,
+		vaiBalance: vaiBalance,
+
+		m:      m,
+		quitCh: make(chan struct{}),
+
+		newMarketCh:               make(chan *NewMarket, 8),
+		closeFactorChangedCh:      make(chan *CloseFactorChanged, 8),
+		collateralFactorChangedCh: make(chan *CollateralFactorChanged, 8),
+		enterMarketCh:             make(chan *EnterMarket, 512),
+		exitMarketCh:              make(chan *ExitMarket, 512),
 		repayVaiAmountChangedCh:   make(chan *RepayVaiAmountChanged, 1024),
 		vTokenAmountChangedCh:     make(chan *VTokenAmountChanged, 1024),
 		priceChangedCh:            make(chan *PriceChanged, 1024),
-		liquidationCh:             make(chan *Liquidation, 1024),
 
-		topAccountSyncCh:  make(chan []common.Address, 1024),
-		highAccountSyncCh: make(chan []common.Address, 1024),
+		//account sync channel
+		topAccountSyncCh:    make(chan []common.Address, 512),
+		highAccountSyncCh:   make(chan []common.Address, 512),
+		middleAccountSyncCh: make(chan []common.Address, 512),
+		lowAccountSyncCh:    make(chan []common.Address, 512),
 
-		//priortyLiquidationCh:      make(chan *Liquidation, 1024),
-		//concernedAccountInfoCh:    make(chan *ConcernedAccountInfo, 4096),
-		//backgroundAccountSyncCh:   make(chan common.Address, 8192),
-		//lowPriorityAccountSyncCh:  make(chan *AccountsWithFeededPrice, 1024),
-		//highPriorityAccountSyncCh: make(chan *AccountsWithFeededPrice, 248),
+		//liquidation channel
+		liquidationCh: make(chan *Liquidation, 1024),
 	}
 }
 
 func (s *Scanner) Start() {
 	logger.Printf("server start")
 
-	//s.wg.Add(11)
-	//go s.SyncCloseFactorLoop()
-	//go s.SyncMarketsLoop()
-	//go s.SyncPriceLoop()
-	////go s.SyncMarketsAndPricesLoop()
-	//go s.ProcessFeededPriceLoop()
-	//go s.SearchNewBorrowerLoop()
-	//go s.BackgroundSyncLoop()
-	//go s.syncAccountLoop()
-	//go s.MonitorLiquidationEventLoop()
-	//go s.PrintConcernedAccountInfoLoop()
-	//go s.MonitorTxPoolLoop()
-	//go s.ProcessLiquidationLoop()
+	s.wg.Add(11)
+	go s.ScanLoop()
+	go s.NewMarketLoop()
+	go s.CloseFactorLoop()
+	go s.CollateralFactorLoop()
+	go s.EnterMarketLoop()
+	go s.ExitMarketLoop()
+	go s.RepayVaiAmountChangedLoop()
+	go s.VTokenAmountChangedLoop()
+	go s.PriceChangedLoop()
+	go s.SyncAccountLoop()
+	go s.LiquidationLoop()
 }
 
 func (s *Scanner) Stop() {
 	close(s.quitCh)
 	s.wg.Wait()
+}
+
+func (s *Scanner) ScanLoop() {
+	defer s.wg.Done()
+	t := time.NewTimer(0)
+	defer t.Stop()
+	db := s.db
+	c := s.c
+
+	for {
+		select {
+		case <-s.quitCh:
+			return
+
+		case <-t.C:
+			currentHeight, err := c.BlockNumber(context.Background())
+			if err != nil {
+				t.Reset(time.Second * 3)
+				continue
+			}
+
+			bz, err := db.Get(dbm.LatestHandledHeightStoreKey(), nil)
+			if err != nil {
+				t.Reset(time.Millisecond * 20)
+				continue
+			}
+
+			latestHandledHeight := big.NewInt(0).SetBytes(bz).Int64()
+			startHeight := latestHandledHeight + 1
+			endHeight := int64(currentHeight)
+
+			if startHeight+ConfirmHeight >= endHeight {
+				t.Reset(time.Second * 3)
+				continue
+			}
+
+			query1 := buildQueryWithoutHeight(s.comptrollerAddr, s.vaiControllerAddr, s.oracleAddr)
+			query2 := buildVTokenQueryWithoutHeight(s.markets)
+
+			for height := startHeight; height < endHeight; height++ {
+				err := s.ScanOneBlock(height, []ethereum.FilterQuery{query1, query2})
+				if err != nil {
+					goto EndWithoutUpdateHeight
+				}
+
+				err = db.Put(dbm.LatestHandledHeightStoreKey(), big.NewInt(height).Bytes(), nil)
+				if err != nil {
+					goto EndWithoutUpdateHeight
+				}
+			}
+
+		EndWithoutUpdateHeight:
+			t.Reset(time.Millisecond * 20)
+		}
+	}
 }
 
 func (s *Scanner) NewMarketLoop() {
@@ -582,6 +644,67 @@ func (s *Scanner) PriceChangedLoop() {
 			}
 		}
 	}
+}
+
+func (s *Scanner) ScanOneBlock(height int64, querys []ethereum.FilterQuery) error {
+	c := s.c
+	h := big.NewInt(height)
+
+	logs := []types.Log{}
+	for _, query := range querys {
+		query.FromBlock = h
+		query.ToBlock = h
+		_logs, err := c.FilterLogs(context.Background(), query)
+		if err != nil {
+			return err
+		}
+		logs = append(logs, _logs...)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(logs))
+	sem := make(semaphore, runtime.NumCPU())
+	for _, log := range logs {
+		sem.Acquire()
+		go func() {
+			defer sem.Release()
+			defer wg.Done()
+			s.DecodeLog(log)
+		}()
+	}
+	wg.Wait()
+	return nil
+}
+
+func (s *Scanner) ScanBlockBySpan(from, to int64, querys []ethereum.FilterQuery) error {
+	c := s.c
+	_from := big.NewInt(from)
+	_to := big.NewInt(to)
+
+	logs := []types.Log{}
+	for _, query := range querys {
+		query.FromBlock = _from
+		query.ToBlock = _to
+		_logs, err := c.FilterLogs(context.Background(), query)
+		if err != nil {
+			return err
+		}
+		logs = append(logs, _logs...)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(logs))
+	sem := make(semaphore, runtime.NumCPU())
+	for _, log := range logs {
+		sem.Acquire()
+		go func() {
+			defer sem.Release()
+			defer wg.Done()
+			s.DecodeLog(log)
+		}()
+	}
+	wg.Wait()
+	return nil
 }
 
 func newMarket(c *ethclient.Client, comptroller *venus.Comptroller, oracle *venus.PriceOracle, market common.Address) (*TokenInfo, *TokenPrice, error) {

@@ -34,7 +34,7 @@ func TestSupportMarketEvent_46341448(t *testing.T) {
 	assert.EqualValues(t, 46341448, event.UpdatedHeight)
 }
 
-func TestNewCloseFactorEvent_46341424(t *testing.T) {
+func Test_NewCloseFactorEvent_46341424(t *testing.T) {
 	c, err := ethclient.Dial(Url)
 	assert.NoError(t, err)
 

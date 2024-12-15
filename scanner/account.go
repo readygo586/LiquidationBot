@@ -6,24 +6,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	dbm "github.com/readygo586/LiquidationBot/db"
 	"github.com/shopspring/decimal"
-	"math/big"
 	"runtime"
 	"sync"
-)
-
-var (
-	EXPSACLE              = decimal.New(1, 18)
-	ExpScaleFloat, _      = big.NewFloat(0).SetString("1000000000000000000")
-	BigZero               = big.NewInt(0)
-	DecimalMax            = decimal.New(1, 128) // solidity's 2^256 = 4^128 < decimal's 10^128
-	Decimal1P0, _         = decimal.NewFromString("1.0")
-	Decimal1P1, _         = decimal.NewFromString("1.1")
-	Decimal1P5, _         = decimal.NewFromString("1.5")
-	Decimal2P0, _         = decimal.NewFromString("2.0")
-	Decimal3P0, _         = decimal.NewFromString("3.0")
-	DecimalNonProfit, _   = decimal.NewFromString("255") //magicnumber for nonprofit
-	ProfitThreshold       = decimal.New(5, 18)           //5 USDT
-	MaxLoanValueThreshold = decimal.New(100, 18)         //100 USDT
 )
 
 type Asset struct {
@@ -135,7 +119,7 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 	}
 
 	maxLoanValue := decimal.NewFromInt(0)
-	maxLoanMarket := s.vaiMarket
+	maxLoanMarket := s.vaiControllerAddr
 	for _, market := range markets {
 		errCode, bigBalance, bigBorrow, bigExchangeRate, err := vbep20s[market].GetAccountSnapshot(nil, account)
 		if err != nil || errCode.Cmp(BigZero) != 0 {
@@ -195,7 +179,7 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 
 	if vaiLoan.Cmp(maxLoanValue) == 1 {
 		maxLoanValue = vaiLoan
-		maxLoanMarket = s.vaiMarket
+		maxLoanMarket = s.vaiControllerAddr
 	}
 
 	currentHeight, _ := s.c.BlockNumber(context.Background())
