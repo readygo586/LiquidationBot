@@ -170,7 +170,7 @@ func TestRepayVaiEvent_46373178(t *testing.T) {
 	event, err := decodeRepayVAI(logs[0])
 	assert.NoError(t, err)
 	assert.Equal(t, "0x1EE399b35337505DAFCE451a3311ed23Ee023885", event.Account.Hex())
-	assert.Equal(t, "16000000000000000000", event.Amount.String())
+	assert.Equal(t, "-16000000000000000000", event.Amount.String())
 	assert.EqualValues(t, 46373178, event.UpdatedHeight)
 }
 

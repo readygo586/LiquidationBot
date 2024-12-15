@@ -179,6 +179,7 @@ func decodeRepayVAI(log types.Log) (*RepayVaiAmountChanged, error) {
 
 	account := common.BytesToAddress(data[32:64])
 	amount := big.NewInt(0).SetBytes(data[64:96])
+	amount = big.NewInt(0).Neg(amount)
 	return &RepayVaiAmountChanged{
 		Account:       account,
 		Amount:        decimal.NewFromBigInt(amount, 0),

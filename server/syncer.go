@@ -13,19 +13,16 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/readygo67/LiquidationBot/db"
 	"github.com/readygo67/LiquidationBot/venus"
 	"github.com/shopspring/decimal"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
 	"math/big"
-	"reflect"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 )
 
 const (
@@ -696,8 +693,7 @@ func (s *Syncer) processHighPriorityAccountSync(req *AccountsWithFeededPrice) {
 	wg.Wait()
 }
 
-
-//Monitoring accounts
+// Monitoring accounts
 func (s *Syncer) SearchNewBorrowerLoop() {
 	defer s.wg.Done()
 	db := s.db
@@ -2433,5 +2429,3 @@ func (info *ConcernedAccountInfo) toReadable() ConcernedAccountInfo {
 	readableInfo.AccInfo = info.AccInfo.toReadable()
 	return readableInfo
 }
-
-func (info *Asset) toReadable() Asset {

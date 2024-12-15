@@ -98,6 +98,7 @@ type Scanner struct {
 	comptroller   *venus.Comptroller
 	vaiController *venus.VaiController
 	vai           *venus.Vai
+	vaiMarket     common.Address
 	oracle        *venus.PriceOracle
 	closeFactor   *CloseFactor
 	//token info
@@ -125,12 +126,12 @@ type Scanner struct {
 	vTokenAmountChangedCh     chan *VTokenAmountChanged //collateralAmount change, including mint, redeem, transfer
 	priceChangedCh            chan *PriceChanged
 
-	topAccountSyncCh    chan common.Address
-	highAccountSyncCh   chan common.Address
-	middleAccountSyncCh chan common.Address
-	lowAccountSyncCh    chan common.Address
+	topAccountSyncCh    chan []common.Address
+	highAccountSyncCh   chan []common.Address
+	middleAccountSyncCh chan []common.Address
+	lowAccountSyncCh    chan []common.Address
 
-	//liquidationCh             chan *Liquidation
+	liquidationCh chan *Liquidation
 	//priortyLiquidationCh      chan *Liquidation
 	//concernedAccountInfoCh    chan *ConcernedAccountInfo
 	//backgroundAccountSyncCh   chan common.Address
@@ -252,7 +253,7 @@ func NewScanner(
 			panic(err)
 		}
 
-		tokens[common.HexToAddress(_vai)] = &TokenInfo{
+		tokens[common.HexToAddress(_vaiController)] = &TokenInfo{
 			Symbol:             vaiSymbol,
 			Market:             common.HexToAddress(_vaiController),
 			UnderlyingAddress:  common.HexToAddress(_vai),
@@ -295,6 +296,7 @@ func NewScanner(
 		comptroller:               comptroller,
 		vaiController:             vaiController,
 		vai:                       vai,
+		vaiMarket:                 common.HexToAddress(_vaiController),
 		oracle:                    oracle,
 		closeFactor:               closeFactor,
 		markets:                   markets,
@@ -312,7 +314,11 @@ func NewScanner(
 		repayVaiAmountChangedCh:   make(chan *RepayVaiAmountChanged, 1024),
 		vTokenAmountChangedCh:     make(chan *VTokenAmountChanged, 1024),
 		priceChangedCh:            make(chan *PriceChanged, 1024),
-		//liquidationCh:             make(chan *Liquidation, 1024),
+		liquidationCh:             make(chan *Liquidation, 1024),
+
+		topAccountSyncCh:  make(chan []common.Address, 1024),
+		highAccountSyncCh: make(chan []common.Address, 1024),
+
 		//priortyLiquidationCh:      make(chan *Liquidation, 1024),
 		//concernedAccountInfoCh:    make(chan *ConcernedAccountInfo, 4096),
 		//backgroundAccountSyncCh:   make(chan common.Address, 8192),
@@ -365,9 +371,11 @@ func (s *Scanner) NewMarketLoop() {
 			}
 
 			if !exist {
-				token, price, err := newMarket(s.c, s.comptroller, s.oracle, market)
-				if err != nil {
-					logger.Printf("fail to add newMarket:%v err:%v", market, err)
+				token, price, err1 := newMarket(s.c, s.comptroller, s.oracle, market)
+				vbep20, err2 := venus.NewVbep20(market, s.c) //vBep20
+
+				if err1 != nil || err2 != nil {
+					logger.Printf("fail to add newMarket:%v err1:%v,err2:%v", market, err1, err2)
 					time.Sleep(5 * time.Second)
 					logger.Printf("retry to add newMarket:%v event:%v", market, event)
 					s.newMarketCh <- event //retry
@@ -376,6 +384,7 @@ func (s *Scanner) NewMarketLoop() {
 					s.markets = append(s.markets, market)
 					s.tokens[market] = token
 					s.prices[market] = price
+					s.vbep20s[market] = vbep20
 					s.m.Unlock()
 				}
 			}
@@ -431,8 +440,10 @@ func (s *Scanner) CollateralFactorLoop() {
 				}
 				iter.Release()
 
-				for _, account := range accounts {
-					s.highAccountSyncCh <- account
+				if event.CollateralFactor.Cmp(s.tokens[market].CollateralFactor) == -1 {
+					s.highAccountSyncCh <- accounts
+				} else {
+					s.middleAccountSyncCh <- accounts
 				}
 
 				s.m.Lock()
@@ -458,7 +469,7 @@ func (s *Scanner) EnterMarketLoop() {
 			market := event.Market.Bytes()
 			account := event.Account.Bytes()
 			db.Put(dbm.MarketMemberStoreKey(market, account), account, nil)
-			s.highAccountSyncCh <- event.Account
+			s.middleAccountSyncCh <- []common.Address{event.Account}
 		}
 	}
 }
@@ -477,7 +488,7 @@ func (s *Scanner) ExitMarketLoop() {
 			market := event.Market.Bytes()
 			account := event.Account.Bytes()
 			db.Delete(dbm.MarketMemberStoreKey(market, account), nil)
-			s.highAccountSyncCh <- event.Account
+			s.highAccountSyncCh <- []common.Address{event.Account}
 		}
 	}
 }
@@ -494,7 +505,11 @@ func (s *Scanner) RepayVaiAmountChangedLoop() {
 		case event := <-s.repayVaiAmountChangedCh:
 			logger.Printf("RepayVaiAmountChangedLoop:%v\n", event)
 			db.Put(dbm.BorrowersStoreKey(event.Account.Bytes()), event.Account.Bytes(), nil)
-			s.highAccountSyncCh <- event.Account
+			if event.Amount.IsPositive() {
+				s.highAccountSyncCh <- []common.Address{event.Account}
+			} else {
+				s.middleAccountSyncCh <- []common.Address{event.Account}
+			}
 		}
 	}
 }
@@ -518,7 +533,7 @@ func (s *Scanner) VTokenAmountChangedLoop() {
 				log.Fatal(err)
 			}
 			if had {
-				s.highAccountSyncCh <- from
+				s.highAccountSyncCh <- []common.Address{from}
 			}
 
 			had, err = db.Has(dbm.BorrowersStoreKey(to.Bytes()), nil)
@@ -526,7 +541,7 @@ func (s *Scanner) VTokenAmountChangedLoop() {
 				log.Fatal(err)
 			}
 			if had {
-				s.highAccountSyncCh <- to
+				s.middleAccountSyncCh <- []common.Address{to}
 			}
 		}
 	}
@@ -554,8 +569,10 @@ func (s *Scanner) PriceChangedLoop() {
 				}
 				iter.Release()
 
-				for _, account := range accounts {
-					s.highAccountSyncCh <- account
+				if event.Price.Cmp(s.prices[market].Price) == -1 {
+					s.highAccountSyncCh <- accounts
+				} else {
+					s.middleAccountSyncCh <- accounts
 				}
 
 				s.m.Lock()
