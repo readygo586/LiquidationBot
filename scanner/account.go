@@ -283,6 +283,9 @@ func (info *AccountInfo) toReadable() AccountInfo {
 	readableInfo := AccountInfo{}
 	readableInfo.HealthFactor = info.HealthFactor
 	readableInfo.MaxLoanValue = info.MaxLoanValue.Div(EXPSACLE)
+	readableInfo.MaxLoanMarket = info.MaxLoanMarket
+	readableInfo.VaiLoan = info.VaiLoan.Div(EXPSACLE)
+	readableInfo.Height = info.Height
 
 	var readableAssets []Asset
 	for _, asset := range info.Assets {
@@ -290,8 +293,12 @@ func (info *AccountInfo) toReadable() AccountInfo {
 		readableAsset.Symbol = asset.Symbol
 		readableAsset.Balance = asset.Balance
 		readableAsset.Loan = asset.Loan
+		readableAsset.CollateralFactor = asset.CollateralFactor.Div(EXPSACLE)
 		readableAsset.BalanceValue = asset.BalanceValue.Div(EXPSACLE)
 		readableAsset.LoanValue = asset.LoanValue.Div(EXPSACLE)
+		readableAsset.CollateralValue = asset.CollateralValue.Div(EXPSACLE)
+		readableAsset.Price = asset.Price.Div(EXPSACLE)
+		readableAsset.ExchangeRate = asset.ExchangeRate.Div(EXPSACLE)
 		readableAssets = append(readableAssets, readableAsset)
 	}
 	readableInfo.Assets = readableAssets

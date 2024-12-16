@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -102,5 +103,28 @@ func Test_ScanOneBlock_VToken_Events(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, 10, len(s.vTokenAmountChangedCh))
+}
 
+func Test_SyncOneAccount(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+
+	account := common.HexToAddress("0x1EE399b35337505DAFCE451a3311ed23Ee023885")
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+	err = s.syncOneAccount(account)
+	assert.NoError(t, err)
+
+	bz, err := s.db.Get(dbm.AccountStoreKey(account.Bytes()), nil)
+	assert.NoError(t, err)
+
+	var info AccountInfo
+	err = json.Unmarshal(bz, &info)
+	assert.NoError(t, err)
+	assert.Equal(t, account, info.Account)
+	assert.Equal(t, 1, len(info.Assets))
 }
