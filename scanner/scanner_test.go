@@ -48,7 +48,7 @@ func TestBlockByHash_46372737(t *testing.T) {
 	assert.Equal(t, blockHash, block.Hash())
 }
 
-func Test_ScanOneBlock_CloseFactor_46341424(t *testing.T) {
+func Test_ScanOneBlock_Non_VToken_Events(t *testing.T) {
 	cfg, err := config.New("../config.yml")
 	c, err := ethclient.Dial(cfg.RpcUrl)
 
@@ -77,8 +77,30 @@ func Test_ScanOneBlock_CloseFactor_46341424(t *testing.T) {
 	assert.Equal(t, 8, len(s.enterMarketCh))
 	assert.Equal(t, 3, len(s.exitMarketCh))
 
-	for {
-		event := <-s.enterMarketCh
-		fmt.Printf("enter market:%v\n", event)
+}
+
+func Test_ScanOneBlock_VToken_Events(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+
+	query1 := buildQueryWithoutHeight(s.comptrollerAddr, s.vaiControllerAddr, s.oracleAddr)
+	query2 := buildVTokenQueryWithoutHeight(s.markets)
+
+	heights := []int64{46359436, 46359438, 46371967, 46372646, 46373897, 46388393, 46484129, 46484210, 46485843, 46486375}
+	for _, height := range heights {
+		err = s.ScanOneBlock(height, []ethereum.FilterQuery{query1, query2})
+		time.Sleep(20 * time.Microsecond)
+		assert.NoError(t, err)
 	}
+
+	assert.NoError(t, err)
+	assert.Equal(t, 10, len(s.vTokenAmountChangedCh))
+
 }

@@ -661,18 +661,11 @@ func (s *Scanner) ScanOneBlock(height int64, querys []ethereum.FilterQuery) erro
 		logs = append(logs, _logs...)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(len(logs))
-	sem := make(semaphore, runtime.NumCPU())
+	//IMPORTANT: Do not use thread to decode log, which may break the sequence of logs
 	for _, log := range logs {
-		sem.Acquire()
-		go func() {
-			defer sem.Release()
-			defer wg.Done()
-			s.DecodeLog(log)
-		}()
+		s.DecodeLog(log)
 	}
-	wg.Wait()
+
 	return nil
 }
 
@@ -692,18 +685,10 @@ func (s *Scanner) ScanBlockBySpan(from, to int64, querys []ethereum.FilterQuery)
 		logs = append(logs, _logs...)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(len(logs))
-	sem := make(semaphore, runtime.NumCPU())
+	//IMPORTANT: Do not use thread to decode log, which may break the sequence of logs of
 	for _, log := range logs {
-		sem.Acquire()
-		go func() {
-			defer sem.Release()
-			defer wg.Done()
-			s.DecodeLog(log)
-		}()
+		s.DecodeLog(log)
 	}
-	wg.Wait()
 	return nil
 }
 

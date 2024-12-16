@@ -184,11 +184,14 @@ func decodeVTokenTransfer(log types.Log) (*VTokenAmountChanged, error) {
 	if topics[0].Hex() != Transfer || len(topics) != 3 {
 		return nil, fmt.Errorf("invalid topic")
 	}
+
+	market := log.Address
 	from := common.HexToAddress(topics[1].Hex())
 	to := common.HexToAddress(topics[2].Hex())
 	amount := big.NewInt(0).SetBytes(data[0:32])
 
 	return &VTokenAmountChanged{
+		Market:        market,
 		From:          from,
 		To:            to,
 		Amount:        decimal.NewFromBigInt(amount, 0),
