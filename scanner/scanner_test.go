@@ -9,8 +9,10 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/readygo586/LiquidationBot/config"
 	"github.com/readygo586/LiquidationBot/db"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"math/big"
 	"os"
 	"testing"
 	"time"
@@ -127,4 +129,709 @@ func Test_SyncOneAccount(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, account, info.Account)
 	assert.Equal(t, 1, len(info.Assets))
+
+	bz, err = s.db.Get(dbm.LiquidationBelow2P0StoreKey(account.Bytes()), nil)
+	assert.Equal(t, account.Bytes(), bz)
+}
+
+func Test_ScanLoop(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+	t.Logf("begin scan loop\n")
+	s.db.Put(dbm.LatestHandledHeightStoreKey(), big.NewInt(46341420).Bytes(), nil)
+
+	s.wg.Add(1)
+	go s.ScanLoop()
+
+	time.Sleep(time.Second * 30)
+	s.Stop()
+	t.Logf("end scan loop\n")
+
+	assert.Equal(t, 1, len(s.closeFactorChangedCh))
+	assert.Equal(t, 2, len(s.newMarketCh))
+	assert.Equal(t, 2, len(s.collateralFactorChangedCh))
+	assert.Equal(t, 0, len(s.enterMarketCh))
+	assert.Equal(t, 0, len(s.exitMarketCh))
+	assert.Equal(t, 0, len(s.repayVaiAmountChangedCh))
+	assert.Equal(t, 0, len(s.vTokenAmountChangedCh))
+	assert.Equal(t, 0, len(s.priceChangedCh))
+}
+
+//CollateralFactorLoop
+//EnterMarketLoop
+//ExitMarketLoop
+//PriceChangeLoop
+//VTokenAmountChangedLoop
+//RepayVaiAmountChangedLoop
+
+func Test_EnterMarketLoop_ExitMarketLoop(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+
+	vUSDTMarket := common.HexToAddress("0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591")
+	vUSDCMarket := common.HexToAddress("0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28")
+	account1 := common.HexToAddress("0x1EE399b35337505DAFCE451a3311ed23Ee023885")
+	account2 := common.HexToAddress("0x658a6c7962e64132d2487EB2bc431d8Bc285882F")
+	account3 := common.HexToAddress("0x7A2Fc9dc53103f15ec43CC3D1e69eFB73b860562")
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDTMarket,
+		Account:       account1,
+		UpdatedHeight: big.NewInt(46341420).Uint64(),
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account2,
+		UpdatedHeight: big.NewInt(46341421).Uint64(),
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account3,
+		UpdatedHeight: big.NewInt(46341422).Uint64(),
+	}
+
+	s.wg.Add(1)
+	go s.EnterMarketLoop()
+	time.Sleep(time.Second * 2)
+	s.Stop()
+
+	assert.Equal(t, 3, len(s.middleAccountSyncCh))
+	had, _ := s.db.Has(dbm.MarketMemberStoreKey(vUSDTMarket.Bytes(), account1.Bytes()), nil)
+	assert.True(t, had)
+	had, _ = s.db.Has(dbm.MarketMemberStoreKey(vUSDCMarket.Bytes(), account2.Bytes()), nil)
+	assert.True(t, had)
+	had, _ = s.db.Has(dbm.MarketMemberStoreKey(vUSDCMarket.Bytes(), account3.Bytes()), nil)
+	assert.True(t, had)
+
+	had, _ = s.db.Has(dbm.MarketMemberStoreKey(vUSDCMarket.Bytes(), account1.Bytes()), nil)
+	assert.False(t, had)
+	had, _ = s.db.Has(dbm.MarketMemberStoreKey(vUSDTMarket.Bytes(), account2.Bytes()), nil)
+	assert.False(t, had)
+	had, _ = s.db.Has(dbm.MarketMemberStoreKey(vUSDTMarket.Bytes(), account3.Bytes()), nil)
+	assert.False(t, had)
+
+	s.exitMarketCh <- &ExitMarket{
+		Market:        vUSDTMarket,
+		Account:       account1,
+		UpdatedHeight: big.NewInt(46341520).Uint64(),
+	}
+
+	s.exitMarketCh <- &ExitMarket{
+		Market:        vUSDCMarket,
+		Account:       account2,
+		UpdatedHeight: big.NewInt(46341521).Uint64(),
+	}
+
+	s.exitMarketCh <- &ExitMarket{
+		Market:        vUSDCMarket,
+		Account:       account3,
+		UpdatedHeight: big.NewInt(46341522).Uint64(),
+	}
+
+	s.wg.Add(1)
+	go s.ExitMarketLoop()
+	time.Sleep(time.Second * 2)
+	s.Stop()
+
+	assert.Equal(t, 3, len(s.highAccountSyncCh))
+	had, _ = s.db.Has(dbm.MarketMemberStoreKey(vUSDTMarket.Bytes(), account1.Bytes()), nil)
+	assert.False(t, had)
+	had, _ = s.db.Has(dbm.MarketMemberStoreKey(vUSDCMarket.Bytes(), account2.Bytes()), nil)
+	assert.False(t, had)
+	had, _ = s.db.Has(dbm.MarketMemberStoreKey(vUSDCMarket.Bytes(), account3.Bytes()), nil)
+	assert.False(t, had)
+}
+
+func Test_CollateralFactorLoop_CollateralFactorDecrease(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+	height, err := c.BlockNumber(context.Background())
+	require.NoError(t, err)
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+
+	vUSDTMarket := common.HexToAddress("0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591")
+	vUSDCMarket := common.HexToAddress("0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28")
+	account1 := common.HexToAddress("0x1EE399b35337505DAFCE451a3311ed23Ee023885")
+	account2 := common.HexToAddress("0x658a6c7962e64132d2487EB2bc431d8Bc285882F")
+	account3 := common.HexToAddress("0x7A2Fc9dc53103f15ec43CC3D1e69eFB73b860562")
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDTMarket,
+		Account:       account1,
+		UpdatedHeight: height + 1,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account2,
+		UpdatedHeight: height + 1,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account3,
+		UpdatedHeight: height + 1,
+	}
+
+	s.wg.Add(1)
+	go s.EnterMarketLoop()
+	time.Sleep(time.Second * 2)
+
+	newFactor := decimal.NewFromInt(700000000000000000)
+	s.collateralFactorChangedCh <- &CollateralFactorChanged{
+		Market:           vUSDCMarket,
+		CollateralFactor: newFactor,
+		UpdatedHeight:    height + 10,
+	}
+
+	s.wg.Add(1)
+	go s.CollateralFactorLoop()
+	time.Sleep(time.Second * 2)
+	s.Stop()
+
+	assert.Equal(t, 1, len(s.highAccountSyncCh))
+
+	accounts := <-s.highAccountSyncCh
+	assert.Equal(t, []common.Address{account2, account3}, accounts)
+	assert.Equal(t, newFactor, s.tokens[vUSDCMarket].CollateralFactor)
+}
+
+func Test_CollateralFactorLoop_CollateralFactorIncrease(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+	height, err := c.BlockNumber(context.Background())
+	require.NoError(t, err)
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+
+	vUSDTMarket := common.HexToAddress("0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591")
+	vUSDCMarket := common.HexToAddress("0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28")
+	account1 := common.HexToAddress("0x1EE399b35337505DAFCE451a3311ed23Ee023885")
+	account2 := common.HexToAddress("0x658a6c7962e64132d2487EB2bc431d8Bc285882F")
+	account3 := common.HexToAddress("0x7A2Fc9dc53103f15ec43CC3D1e69eFB73b860562")
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDTMarket,
+		Account:       account1,
+		UpdatedHeight: height + 1,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account2,
+		UpdatedHeight: height + 2,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account3,
+		UpdatedHeight: height + 3,
+	}
+
+	s.wg.Add(1)
+	go s.EnterMarketLoop()
+	time.Sleep(time.Second * 2)
+	//drawn out
+	assert.Equal(t, 3, len(s.middleAccountSyncCh))
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+
+	newFactor := decimal.NewFromInt(950000000000000000)
+	s.collateralFactorChangedCh <- &CollateralFactorChanged{
+		Market:           vUSDCMarket,
+		CollateralFactor: newFactor,
+		UpdatedHeight:    height + 10,
+	}
+
+	s.wg.Add(1)
+	go s.CollateralFactorLoop()
+	time.Sleep(time.Second * 2)
+	s.Stop()
+
+	assert.Equal(t, 1, len(s.middleAccountSyncCh))
+
+	accounts := <-s.middleAccountSyncCh
+	assert.Equal(t, []common.Address{account2, account3}, accounts)
+	assert.Equal(t, newFactor, s.tokens[vUSDCMarket].CollateralFactor)
+}
+
+func Test_CollateralFactorLoop_CollateralFactorNotChange(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+	height, err := c.BlockNumber(context.Background())
+	require.NoError(t, err)
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+
+	vUSDTMarket := common.HexToAddress("0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591")
+	vUSDCMarket := common.HexToAddress("0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28")
+	account1 := common.HexToAddress("0x1EE399b35337505DAFCE451a3311ed23Ee023885")
+	account2 := common.HexToAddress("0x658a6c7962e64132d2487EB2bc431d8Bc285882F")
+	account3 := common.HexToAddress("0x7A2Fc9dc53103f15ec43CC3D1e69eFB73b860562")
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDTMarket,
+		Account:       account1,
+		UpdatedHeight: height + 1,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account2,
+		UpdatedHeight: height + 2,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account3,
+		UpdatedHeight: height + 3,
+	}
+
+	s.wg.Add(1)
+	go s.EnterMarketLoop()
+	time.Sleep(time.Second * 2)
+	//drawn out
+	assert.Equal(t, 3, len(s.middleAccountSyncCh))
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+
+	newFactor := decimal.NewFromInt(800000000000000000)
+	s.collateralFactorChangedCh <- &CollateralFactorChanged{
+		Market:           vUSDCMarket,
+		CollateralFactor: newFactor,
+		UpdatedHeight:    height + 10,
+	}
+
+	s.wg.Add(1)
+	go s.CollateralFactorLoop()
+	time.Sleep(time.Second * 2)
+	s.Stop()
+
+	assert.Equal(t, 0, len(s.middleAccountSyncCh))
+}
+
+func Test_CollateralFactorLoop_CollateralFactorTooOld(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+	height, err := c.BlockNumber(context.Background())
+	require.NoError(t, err)
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+
+	vUSDTMarket := common.HexToAddress("0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591")
+	vUSDCMarket := common.HexToAddress("0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28")
+	account1 := common.HexToAddress("0x1EE399b35337505DAFCE451a3311ed23Ee023885")
+	account2 := common.HexToAddress("0x658a6c7962e64132d2487EB2bc431d8Bc285882F")
+	account3 := common.HexToAddress("0x7A2Fc9dc53103f15ec43CC3D1e69eFB73b860562")
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDTMarket,
+		Account:       account1,
+		UpdatedHeight: height + 1,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account2,
+		UpdatedHeight: height + 2,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account3,
+		UpdatedHeight: height + 3,
+	}
+
+	s.wg.Add(1)
+	go s.EnterMarketLoop()
+	time.Sleep(time.Second * 2)
+	//drawn out
+	assert.Equal(t, 3, len(s.middleAccountSyncCh))
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+
+	newFactor := decimal.NewFromInt(800000000000000000)
+	s.collateralFactorChangedCh <- &CollateralFactorChanged{
+		Market:           vUSDCMarket,
+		CollateralFactor: newFactor,
+		UpdatedHeight:    height - 10,
+	}
+
+	s.wg.Add(1)
+	go s.CollateralFactorLoop()
+	time.Sleep(time.Second * 2)
+	s.Stop()
+
+	assert.Equal(t, 0, len(s.middleAccountSyncCh))
+}
+
+func Test_PriceChangedLoop_PriceDecrease(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+	height, err := c.BlockNumber(context.Background())
+	require.NoError(t, err)
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+
+	vUSDTMarket := common.HexToAddress("0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591")
+	vUSDCMarket := common.HexToAddress("0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28")
+	account1 := common.HexToAddress("0x1EE399b35337505DAFCE451a3311ed23Ee023885")
+	account2 := common.HexToAddress("0x658a6c7962e64132d2487EB2bc431d8Bc285882F")
+	account3 := common.HexToAddress("0x7A2Fc9dc53103f15ec43CC3D1e69eFB73b860562")
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDTMarket,
+		Account:       account1,
+		UpdatedHeight: height + 1,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account2,
+		UpdatedHeight: height + 2,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account3,
+		UpdatedHeight: height + 3,
+	}
+
+	s.wg.Add(1)
+	go s.EnterMarketLoop()
+	time.Sleep(time.Second * 2)
+	//drawn out
+	assert.Equal(t, 3, len(s.middleAccountSyncCh))
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+
+	newPrice := decimal.NewFromInt(900000000000000000)
+	s.priceChangedCh <- &PriceChanged{
+		Market:        vUSDCMarket,
+		Price:         newPrice,
+		UpdatedHeight: height + 10,
+	}
+
+	s.wg.Add(1)
+	go s.PriceChangedLoop()
+	time.Sleep(time.Second * 2)
+	s.Stop()
+
+	assert.Equal(t, 1, len(s.highAccountSyncCh))
+	accounts := <-s.highAccountSyncCh
+	assert.Equal(t, []common.Address{account2, account3}, accounts)
+	assert.Equal(t, newPrice, s.prices[vUSDCMarket].Price)
+}
+
+func Test_PriceChangedLoop_PriceIncrease(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+	height, err := c.BlockNumber(context.Background())
+	require.NoError(t, err)
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+
+	vUSDTMarket := common.HexToAddress("0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591")
+	vUSDCMarket := common.HexToAddress("0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28")
+	account1 := common.HexToAddress("0x1EE399b35337505DAFCE451a3311ed23Ee023885")
+	account2 := common.HexToAddress("0x658a6c7962e64132d2487EB2bc431d8Bc285882F")
+	account3 := common.HexToAddress("0x7A2Fc9dc53103f15ec43CC3D1e69eFB73b860562")
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDTMarket,
+		Account:       account1,
+		UpdatedHeight: height + 1,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account2,
+		UpdatedHeight: height + 2,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account3,
+		UpdatedHeight: height + 3,
+	}
+
+	s.wg.Add(1)
+	go s.EnterMarketLoop()
+	time.Sleep(time.Second * 2)
+	//drawn out
+	assert.Equal(t, 3, len(s.middleAccountSyncCh))
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+
+	newPrice := decimal.NewFromInt(1100000000000000000)
+	s.priceChangedCh <- &PriceChanged{
+		Market:        vUSDCMarket,
+		Price:         newPrice,
+		UpdatedHeight: height + 10,
+	}
+
+	s.wg.Add(1)
+	go s.PriceChangedLoop()
+	time.Sleep(time.Second * 2)
+	s.Stop()
+
+	assert.Equal(t, 1, len(s.middleAccountSyncCh))
+	accounts := <-s.middleAccountSyncCh
+	assert.Equal(t, []common.Address{account2, account3}, accounts)
+	assert.Equal(t, newPrice, s.prices[vUSDCMarket].Price)
+}
+
+func Test_PriceChangedLoop_PriceTooOld(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+	height, err := c.BlockNumber(context.Background())
+	require.NoError(t, err)
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+
+	vUSDTMarket := common.HexToAddress("0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591")
+	vUSDCMarket := common.HexToAddress("0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28")
+	account1 := common.HexToAddress("0x1EE399b35337505DAFCE451a3311ed23Ee023885")
+	account2 := common.HexToAddress("0x658a6c7962e64132d2487EB2bc431d8Bc285882F")
+	account3 := common.HexToAddress("0x7A2Fc9dc53103f15ec43CC3D1e69eFB73b860562")
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDTMarket,
+		Account:       account1,
+		UpdatedHeight: height + 1,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account2,
+		UpdatedHeight: height + 2,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account3,
+		UpdatedHeight: height + 3,
+	}
+
+	s.wg.Add(1)
+	go s.EnterMarketLoop()
+	time.Sleep(time.Second * 2)
+	//drawn out
+	assert.Equal(t, 3, len(s.middleAccountSyncCh))
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+
+	newPrice := decimal.NewFromInt(1100000000000000000)
+	s.priceChangedCh <- &PriceChanged{
+		Market:        vUSDCMarket,
+		Price:         newPrice,
+		UpdatedHeight: height - 10,
+	}
+
+	s.wg.Add(1)
+	go s.PriceChangedLoop()
+	time.Sleep(time.Second * 2)
+	s.Stop()
+
+	assert.Equal(t, 0, len(s.middleAccountSyncCh))
+}
+
+func Test_VTokenAmountChangedLoop(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+	height, err := c.BlockNumber(context.Background())
+	require.NoError(t, err)
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+
+	vUSDTMarket := common.HexToAddress("0xEAB5387c7d9280eC791cdF46921cF4b3C62fd591")
+	vUSDCMarket := common.HexToAddress("0x0dB931cE74a54Ed1c04Bef1ad2459F829dC4fa28")
+	account1 := common.HexToAddress("0x1EE399b35337505DAFCE451a3311ed23Ee023885")
+	account2 := common.HexToAddress("0x658a6c7962e64132d2487EB2bc431d8Bc285882F")
+	account3 := common.HexToAddress("0x7A2Fc9dc53103f15ec43CC3D1e69eFB73b860562")
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDTMarket,
+		Account:       account1,
+		UpdatedHeight: height + 1,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account2,
+		UpdatedHeight: height + 2,
+	}
+
+	s.enterMarketCh <- &EnterMarket{
+		Market:        vUSDCMarket,
+		Account:       account3,
+		UpdatedHeight: height + 3,
+	}
+
+	s.wg.Add(1)
+	go s.EnterMarketLoop()
+	time.Sleep(time.Second * 2)
+	//drawn out
+	assert.Equal(t, 3, len(s.middleAccountSyncCh))
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+	<-s.middleAccountSyncCh
+
+	amount := decimal.NewFromInt(1100000000000000000)
+	s.vTokenAmountChangedCh <- &VTokenAmountChanged{
+		Market:        vUSDCMarket,
+		From:          account2,
+		To:            account3,
+		Amount:        amount,
+		UpdatedHeight: height + 10,
+	}
+
+	s.vTokenAmountChangedCh <- &VTokenAmountChanged{
+		Market:        vUSDTMarket,
+		From:          account1,
+		To:            account2,
+		Amount:        amount,
+		UpdatedHeight: height + 11,
+	}
+
+	s.wg.Add(1)
+	go s.VTokenAmountChangedLoop()
+	time.Sleep(time.Second * 2)
+	s.Stop()
+
+	assert.Equal(t, 2, len(s.highAccountSyncCh))
+	accounts := <-s.highAccountSyncCh
+	assert.Equal(t, []common.Address{account2}, accounts)
+
+	accounts = <-s.highAccountSyncCh
+	assert.Equal(t, []common.Address{account1}, accounts)
+
+	assert.Equal(t, 1, len(s.middleAccountSyncCh))
+	accounts = <-s.middleAccountSyncCh
+	assert.Equal(t, []common.Address{account3}, accounts)
+}
+
+func Test_RepayVaiAmountChangedLoop(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	c, err := ethclient.Dial(cfg.RpcUrl)
+
+	db, err := dbm.NewDB("testdb1")
+	require.NoError(t, err)
+	defer db.Close()
+	defer os.RemoveAll("testdb1")
+	height, err := c.BlockNumber(context.Background())
+	require.NoError(t, err)
+
+	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+
+	account1 := common.HexToAddress("0x1EE399b35337505DAFCE451a3311ed23Ee023885")
+	account2 := common.HexToAddress("0x658a6c7962e64132d2487EB2bc431d8Bc285882F")
+	account3 := common.HexToAddress("0x7A2Fc9dc53103f15ec43CC3D1e69eFB73b860562")
+
+	s.repayVaiAmountChangedCh <- &RepayVaiAmountChanged{
+		Account:       account1,
+		Amount:        decimal.NewFromInt(1000000000000000000),
+		UpdatedHeight: height + 1,
+	}
+
+	s.repayVaiAmountChangedCh <- &RepayVaiAmountChanged{
+		Account:       account2,
+		Amount:        decimal.NewFromInt(-1000000000000000000),
+		UpdatedHeight: height + 2,
+	}
+
+	s.repayVaiAmountChangedCh <- &RepayVaiAmountChanged{
+		Account:       account3,
+		Amount:        decimal.NewFromInt(-2000000000000000000),
+		UpdatedHeight: height + 2,
+	}
+
+	s.wg.Add(1)
+	go s.RepayVaiAmountChangedLoop()
+	time.Sleep(time.Second * 2)
+	s.Stop()
+	//drawn out
+	assert.Equal(t, 1, len(s.highAccountSyncCh))
+	assert.Equal(t, 2, len(s.middleAccountSyncCh))
+
+	accounts := <-s.highAccountSyncCh
+	assert.Equal(t, []common.Address{account1}, accounts)
+
+	accounts = <-s.middleAccountSyncCh
+	assert.Equal(t, []common.Address{account2}, accounts)
+
+	accounts = <-s.middleAccountSyncCh
+	assert.Equal(t, []common.Address{account3}, accounts)
+
+	had, _ := s.db.Has(dbm.BorrowersStoreKey(account1.Bytes()), nil)
+	assert.True(t, had)
+
+	had, _ = s.db.Has(dbm.BorrowersStoreKey(account2.Bytes()), nil)
+	assert.True(t, had)
+
+	had, _ = s.db.Has(dbm.BorrowersStoreKey(account3.Bytes()), nil)
+	assert.True(t, had)
 }

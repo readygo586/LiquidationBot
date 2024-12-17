@@ -45,30 +45,30 @@ func (s *Scanner) SyncAccountLoop() {
 			return
 
 		case accounts := <-s.topAccountSyncCh:
-			s.processAccounts(accounts)
+			s.syncAccounts(accounts)
 
 		case accounts := <-s.highAccountSyncCh:
 			if len(s.topAccountSyncCh) != 0 {
 				continue
 			}
-			s.processAccounts(accounts)
+			s.syncAccounts(accounts)
 
 		case accounts := <-s.middleAccountSyncCh:
 			if len(s.highAccountSyncCh) != 0 {
 				continue
 			}
-			s.processAccounts(accounts)
+			s.syncAccounts(accounts)
 
 		case accounts := <-s.lowAccountSyncCh:
 			if len(s.middleAccountSyncCh) != 0 {
 				continue
 			}
-			s.processAccounts(accounts)
+			s.syncAccounts(accounts)
 		}
 	}
 }
 
-func (s *Scanner) processAccounts(accounts []common.Address) {
+func (s *Scanner) syncAccounts(accounts []common.Address) {
 	var wg sync.WaitGroup
 	wg.Add(len(accounts))
 	sem := make(semaphore, runtime.NumCPU())

@@ -384,7 +384,8 @@ func (s *Scanner) ScanLoop() {
 
 			latestHandledHeight := big.NewInt(0).SetBytes(bz).Int64()
 			startHeight := latestHandledHeight + 1
-			endHeight := int64(currentHeight)
+			endHeight := min(int64(currentHeight), startHeight+100) //scan 100 blocks each round, give chance to respond quitCh
+			logger.Printf("startHeight:%v, endHeight:%v, currentHeight:%v", startHeight, endHeight, currentHeight)
 
 			if startHeight+ConfirmHeight >= endHeight {
 				t.Reset(time.Second * 3)
@@ -404,6 +405,7 @@ func (s *Scanner) ScanLoop() {
 				if err != nil {
 					goto EndWithoutUpdateHeight
 				}
+				log.Printf("successfully scanned block:%v", height)
 			}
 
 		EndWithoutUpdateHeight:
@@ -493,6 +495,10 @@ func (s *Scanner) CollateralFactorLoop() {
 
 			market := event.Market
 			if event.UpdatedHeight > s.tokens[market].UpdatedHeight {
+				if event.CollateralFactor.Cmp(s.tokens[market].CollateralFactor) == 0 {
+					continue
+				}
+
 				//collect affected accounts, and recalculate their health factor
 				var accounts []common.Address
 				prefix := append(dbm.MarketMemberPrefix, market.Bytes()...)
@@ -587,10 +593,14 @@ func (s *Scanner) VTokenAmountChangedLoop() {
 
 		case event := <-s.vTokenAmountChangedCh:
 			logger.Printf("VTokenAmountChangedLoop:%v\n", event)
+			market := event.Market
 			from := event.From
 			to := event.To
+			if from == to {
+				continue
+			}
 
-			had, err := db.Has(dbm.BorrowersStoreKey(from.Bytes()), nil)
+			had, err := db.Has(dbm.MarketMemberStoreKey(market.Bytes(), from.Bytes()), nil)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -598,7 +608,7 @@ func (s *Scanner) VTokenAmountChangedLoop() {
 				s.highAccountSyncCh <- []common.Address{from}
 			}
 
-			had, err = db.Has(dbm.BorrowersStoreKey(to.Bytes()), nil)
+			had, err = db.Has(dbm.MarketMemberStoreKey(market.Bytes(), to.Bytes()), nil)
 			if err != nil {
 				log.Fatal(err)
 			}
