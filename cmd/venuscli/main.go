@@ -98,7 +98,7 @@ func heightCommand(configFile *string) *cobra.Command {
 				return err
 			}
 
-			bz, err := db.Get(dbm.LastHandledHeightStoreKey(), nil)
+			bz, err := db.Get(dbm.LatestHandledHeightStoreKey(), nil)
 			if err != nil {
 				return err
 			}

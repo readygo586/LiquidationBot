@@ -2,19 +2,23 @@ package config
 
 import (
 	"gopkg.in/yaml.v2"
-	"io/ioutil"
+	"os"
 )
 
 type Config struct {
-	RPCURL        string `yaml:"rpc_url"`
+	RpcUrl        string `yaml:"rpc_url"`
 	Network       string `yaml:"network"`
 	Oracle        string `yaml:"oracle"`
 	Comptroller   string `yaml:"comptroller"`
-	PancakeRouter string `yaml:"pancake_router"`
-	Liquidator    string `yaml:"liquidator"`
+	VaiController string `yaml:"vai_controller"`
+	Vai           string `yaml:"vai"`
+	WBTC          string `yaml:"wbtc"`
+	WETH          string `yaml:"weth"`
+	VBNB          string `yaml:"vbnb"`
+	WBNB          string `yaml:"wbnb"`
 	PrivateKey    string `yaml:"private_key"`
 	DB            string `yaml:"db"`
-	StartHeihgt   uint64 `yaml:"start_heihgt"`
+	StartHeight   uint64 `yaml:"start_height"`
 	Override      bool   `yaml:"override"`
 }
 
@@ -24,7 +28,7 @@ func New(path string) (*Config, error) {
 	var config = new(Config)
 	//h := log.StreamHandler(os.Stdout, log.TerminalFormat(true))
 	//log.Root().SetHandler(h)
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

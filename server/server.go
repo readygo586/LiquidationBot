@@ -16,7 +16,7 @@ const DefaultStartHeigt = uint64(13000000)
 var logger = log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lmicroseconds)
 
 func Start(cfg *config.Config) error {
-	client, err := ethclient.Dial(cfg.RPCURL)
+	client, err := ethclient.Dial(cfg.RpcUrl)
 	if err != nil {
 		return err
 	}
@@ -29,20 +29,20 @@ func Start(cfg *config.Config) error {
 
 	startHeight := DefaultStartHeigt
 	var storedHeight uint64
-	exist, err := db.Has(dbm.LastHandledHeightStoreKey(), nil)
+	exist, err := db.Has(dbm.LatestHandledHeightStoreKey(), nil)
 	if exist {
-		bz, err := db.Get(dbm.LastHandledHeightStoreKey(), nil)
+		bz, err := db.Get(dbm.LatestHandledHeightStoreKey(), nil)
 		if err != nil {
 			return err
 		}
 		storedHeight = big.NewInt(0).SetBytes(bz).Uint64()
 		startHeight = storedHeight
 	}
-	logger.Printf("startHeight:%v, storedHeight:%v, configHeight:%v\n", startHeight, storedHeight, cfg.StartHeihgt)
+	logger.Printf("startHeight:%v, storedHeight:%v, configHeight:%v\n", startHeight, storedHeight, cfg.StartHeight)
 	if cfg.Override {
-		startHeight = cfg.StartHeihgt
+		startHeight = cfg.StartHeight
 	}
-	err = db.Put(dbm.LastHandledHeightStoreKey(), big.NewInt(0).SetUint64(startHeight).Bytes(), nil)
+	err = db.Put(dbm.LatestHandledHeightStoreKey(), big.NewInt(0).SetUint64(startHeight).Bytes(), nil)
 	if err != nil {
 		panic(err)
 	}

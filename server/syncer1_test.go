@@ -52,7 +52,7 @@ func TestSyncOneAccountWithFeededPrices2(t *testing.T) {
 	for _, asset := range info.Assets {
 		symbol := asset.Symbol
 
-		bz, err = db.Get(dbm.MarketStoreKey([]byte(symbol), accountBytes), nil)
+		bz, err = db.Get(dbm.MarketMemberStoreKey([]byte(symbol), accountBytes), nil)
 		require.NoError(t, err)
 		require.Equal(t, account, common.BytesToAddress(bz))
 

@@ -132,7 +132,7 @@ func TestDeleteAllKeysExceptBorrowers(t *testing.T) {
 		require.NoError(t, err)
 		assets := info.Assets
 		for _, asset := range assets {
-			db.Delete(dbm.MarketStoreKey([]byte(asset.Symbol), accountBytes), nil)
+			db.Delete(dbm.MarketMemberStoreKey([]byte(asset.Symbol), accountBytes), nil)
 		}
 		db.Delete(dbm.AccountStoreKey(accountBytes), nil)
 	}

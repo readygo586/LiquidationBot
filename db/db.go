@@ -10,12 +10,15 @@ const HashLength = 32
 type Hash [HashLength]byte
 
 var (
-	KeyLastHandledHeight       = []byte("last_handled_height")
+	KeyLatestHandledHeight     = []byte("latest_handled_height")
+	KeyCloseFactor             = []byte("close_factor")
 	KeyBorrowerNumber          = []byte("number_of_borrowers")
 	BorrowersPrefix            = []byte("borrowers") //prefix with all borrowers
 	PricesPrefix               = []byte("prices")
 	AccountPrefix              = []byte("account")
 	MarketPrefix               = []byte("market")
+	MarketMemberPrefix         = []byte("market_member")
+	JoinedMarketPrefix         = []byte("joined_market")
 	LiquidationBelow1P0Prefix  = []byte("liquidation_below_1p0")
 	LiquidationBelow1P1Prefix  = []byte("liquidation_below_1p1")
 	LiquidationBelow1P5Prefix  = []byte("liquidation_below_1p5")
@@ -30,16 +33,25 @@ func BorrowerNumberKey() []byte {
 	return KeyBorrowerNumber
 }
 
-func LastHandledHeightStoreKey() []byte {
-	return KeyLastHandledHeight
+func LatestHandledHeightStoreKey() []byte {
+	return KeyLatestHandledHeight
 }
 
-func BorrowersStoreKey(address []byte) []byte {
-	return append(BorrowersPrefix, address...)
+func BorrowersStoreKey(account []byte) []byte {
+	return append(BorrowersPrefix, account...)
 }
 
-func MarketStoreKey(symbol []byte, account []byte) []byte {
-	bz := append(MarketPrefix, symbol...)
+// record account joined markets
+func JoinedMarketMemberStoreKey(account []byte, address []byte) []byte {
+	bz := append(JoinedMarketPrefix, account...)
+	return append(bz, address...)
+}
+
+func MarketStoreKey(market []byte) []byte {
+	return append(MarketPrefix, market...)
+}
+func MarketMemberStoreKey(market []byte, account []byte) []byte {
+	bz := append(MarketMemberPrefix, market...)
 	return append(bz, account...)
 }
 
