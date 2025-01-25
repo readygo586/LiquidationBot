@@ -12,6 +12,7 @@ import (
 
 type Asset struct {
 	Symbol           string
+	Market           common.Address
 	Balance          decimal.Decimal
 	Loan             decimal.Decimal
 	CollateralFactor decimal.Decimal
@@ -54,13 +55,13 @@ func (s *Scanner) SyncAccountLoop() {
 			s.syncAccounts(accounts)
 
 		case accounts := <-s.middleAccountSyncCh:
-			if len(s.highAccountSyncCh) != 0 {
+			if len(s.topAccountSyncCh) != 0 || len(s.highAccountSyncCh) != 0 {
 				continue
 			}
 			s.syncAccounts(accounts)
 
 		case accounts := <-s.lowAccountSyncCh:
-			if len(s.middleAccountSyncCh) != 0 {
+			if len(s.topAccountSyncCh) != 0 || len(s.highAccountSyncCh) != 0 || len(s.middleAccountSyncCh) != 0 {
 				continue
 			}
 			s.syncAccounts(accounts)
@@ -97,7 +98,7 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 		return err
 	}
 	if _vaiLoan.Cmp(BigZero) == 0 {
-		//shortcut, in jupiter, vai is the only borrowable asset
+		//shortcut, in jupiter, vai is the only borrowable asset currently
 		return nil
 	}
 	vaiLoan := decimal.NewFromBigInt(_vaiLoan, 0)
@@ -153,6 +154,7 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 
 		asset := Asset{
 			Symbol:           tokens[market].Symbol,
+			Market:           market,
 			Balance:          balance,
 			Loan:             borrow,
 			CollateralFactor: collateralFactor,
@@ -195,13 +197,10 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 	s.UpdateAccount(account, info)
 	logger.Printf("syncOneAccount,account:%v, height:%v,totalCollateral:%v, totalLoan:%v,info:%+v\n", account, currentHeight, totalCollateral, totalLoan, info.toReadable())
 
-	//trigger liquidation immediately
+	//trigger liquidation immediately, actually we can check GetAccountLiquidity without calculating healthFactor
 	errCode, _, shortfall, err := comptroller.GetAccountLiquidity(nil, account)
 	if err == nil && errCode.Cmp(BigZero) == 0 && shortfall.Cmp(BigZero) == 1 {
-		liquidation := &Liquidation{
-			AccountInfo: info,
-		}
-		s.liquidationCh <- liquidation
+		s.liquidationCh <- &info
 	}
 
 	return nil
@@ -212,6 +211,7 @@ func (s *Scanner) UpdateAccount(account common.Address, info AccountInfo) {
 	s.storeAccount(account, info)
 }
 
+// 根据旧的healfactor, 删除旧的AccountInfo
 func (s *Scanner) deleteAccount(account common.Address) {
 	db := s.db
 	accountBytes := account.Bytes()

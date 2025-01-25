@@ -22,7 +22,7 @@ var (
 //const LiquidateBorrow = "0x298637f684da70674f26509b10f07ec2fbc77a335ab1e7d6215a4b2484d8bb52"
 
 // topics in PriceOralce
-const PriceUpdate = ""
+//const PriceUpdated = ""
 
 //const VaiController = "0x96ae4986D9ff19992dA84B5DBA9790cAE7246b80"
 //const Comptroller = "0xB4Abb34e08094B1915Ac3f7882aed81d0104b121"
@@ -36,7 +36,7 @@ func buildQueryWithoutHeight(comptroller, vaiController, oracle common.Address) 
 	_topics = append(_topics,
 		common.HexToHash(MarketListed), common.HexToHash(NewCloseFactor), common.HexToHash(NewCollateralFactor), common.HexToHash(MarketEntered), common.HexToHash(MarketExited),
 		common.HexToHash(MintVAI), common.HexToHash(RepayVAI), common.HexToHash(LiquidateVAI),
-		common.HexToHash(PriceUpdate),
+		common.HexToHash(PriceUpdated),
 	)
 	topics := [][]common.Hash{_topics}
 
@@ -347,7 +347,7 @@ func (s *Scanner) DecodeLog(log types.Log) error {
 		}
 		s.vTokenAmountChangedCh <- change
 
-	case PriceUpdate:
+	case PriceUpdated:
 		change, err := decodePriceUpdate(log)
 		if err != nil {
 			return err

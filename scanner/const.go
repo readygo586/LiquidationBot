@@ -6,7 +6,16 @@ import (
 )
 
 const (
-	//topics in VaiController
+	ChainID = 10086
+)
+
+const (
+	ForbiddenPeriodForBadLiquidation     = 200 //200 block
+	ForbiddenPeriodForPendingLiquidation = 200
+)
+
+const (
+	//topics in Comptroller
 	MarketListed        = "0xcf583bb0c569eb967f806b11601c4cb93c10310485c67add5f8362c2f212321f"
 	NewCloseFactor      = "0x3b9670cf975d26958e754b57098eaa2ac914d8d2a31b83257997b9f346110fd9"
 	NewCollateralFactor = "0x70483e6592cd5182d45ac970e05bc62cdcc90e9d8ef2c2dbe686cf383bcd7fc5"
@@ -20,6 +29,9 @@ const (
 
 	//topics in vToken
 	Transfer = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+	//PriceChanged
+	PriceUpdated = ""
 )
 
 const (
@@ -37,6 +49,6 @@ var (
 	Decimal2P0, _         = decimal.NewFromString("2.0")
 	Decimal3P0, _         = decimal.NewFromString("3.0")
 	DecimalNonProfit, _   = decimal.NewFromString("255") //magicnumber for nonprofit
-	ProfitThreshold       = decimal.New(5, 18)           //5 USDT
+	ProfitThreshold       = decimal.New(1, 18)           //1 USDT
 	MaxLoanValueThreshold = decimal.New(100, 18)         //100 USDT
 )

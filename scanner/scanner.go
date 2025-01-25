@@ -140,7 +140,7 @@ type Scanner struct {
 	lowAccountSyncCh    chan []common.Address
 
 	//liquidation channel
-	liquidationCh chan *Liquidation
+	liquidationCh chan *AccountInfo
 }
 
 func init() {
@@ -331,7 +331,7 @@ func NewScanner(
 		lowAccountSyncCh:    make(chan []common.Address, 512),
 
 		//liquidation channel
-		liquidationCh: make(chan *Liquidation, 1024),
+		liquidationCh: make(chan *AccountInfo, 1024),
 	}
 }
 
@@ -340,6 +340,8 @@ func (s *Scanner) Start() {
 
 	s.wg.Add(11)
 	go s.ScanLoop()
+
+	//event processors
 	go s.NewMarketLoop()
 	go s.CloseFactorLoop()
 	go s.CollateralFactorLoop()
@@ -348,7 +350,11 @@ func (s *Scanner) Start() {
 	go s.RepayVaiAmountChangedLoop()
 	go s.VTokenAmountChangedLoop()
 	go s.PriceChangedLoop()
+
+	//sync account
 	go s.SyncAccountLoop()
+
+	//liquidation
 	go s.LiquidationLoop()
 }
 
