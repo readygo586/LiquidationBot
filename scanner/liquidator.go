@@ -3,6 +3,7 @@ package scanner
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"fmt"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -13,6 +14,11 @@ import (
 	"math/big"
 	"sort"
 )
+
+type PendingLiquidation struct {
+	Hash   common.Hash
+	Height uint64
+}
 
 func (s *Scanner) LiquidationLoop() {
 	defer s.wg.Done()
@@ -78,10 +84,25 @@ func (s *Scanner) liquidate(info *AccountInfo) error {
 	errCode := big.NewInt(0)
 
 	var repayAmount decimal.Decimal
-
+	var actualRepayValue decimal.Decimal
 	//currently, repay VAI only
 	if repayMarket == s.vaiControllerAddr {
 		repayAmount = repayValue.Truncate(0).Mul(decimal.New(9999, -4)) //不能100%的repay,负责会报TOO_MUCH_REPAY的错误
+		actualRepayValue = repayValue.Truncate(0).Mul(decimal.New(9999, -4))
+		publicKey := s.PrivateKey.Public()
+		publicKeyECDSA, _ := publicKey.(*ecdsa.PublicKey)
+		repayer := crypto.PubkeyToAddress(*publicKeyECDSA)
+
+		_vaiBalance, err := s.vai.BalanceOf(nil, repayer)
+		if err != nil {
+			return err
+		}
+
+		vaiBalance := decimal.NewFromBigInt(_vaiBalance, 0)
+		if vaiBalance.Cmp(repayAmount) == -1 {
+			repayAmount = vaiBalance
+		}
+
 		errCode, bigSeizedVTokenAmount, err = comptroller.LiquidateVAICalculateSeizeTokens(nil, seizedMarket, repayAmount.BigInt())
 		if err != nil || errCode.Cmp(BigZero) != 0 {
 			logger.Printf("processLiquidationReq, fail to get LiquidateVAICalculateSeizeTokens, account:%v, err:%v, errCode:%v\n", account, err, errCode)
@@ -95,12 +116,12 @@ func (s *Scanner) liquidate(info *AccountInfo) error {
 	seizedUnderlyingTokenAmount := seizedVTokenAmount.Mul(assets[0].ExchangeRate).Div(EXPSACLE)
 	seizedUnderlyingTokenValue := seizedUnderlyingTokenAmount.Mul(assets[0].Price).Div(EXPSACLE)
 
-	ratio := seizedUnderlyingTokenValue.Div(repayValue)
-	fmt.Printf("seizedUnderlyingTokenValue:%v, repayValue:%v, ratio:%v\n", seizedUnderlyingTokenValue, repayValue, ratio) //
+	ratio := seizedUnderlyingTokenValue.Div(actualRepayValue)
+	fmt.Printf("seizedUnderlyingTokenValue:%v, actualRepayValue:%v, ratio:%v\n", seizedUnderlyingTokenValue, actualRepayValue, ratio) //
 	//
-	massProfit := seizedUnderlyingTokenValue.Sub(repayValue)
+	massProfit := seizedUnderlyingTokenValue.Sub(actualRepayValue)
 	if massProfit.Cmp(ProfitThreshold) == -1 {
-		logger.Printf("processLiquidationReq, profit:%v < 5 USD, omit\n", massProfit.Div(EXPSACLE))
+		logger.Printf("processLiquidationReq, profit:%v < 1 USD, omit\n", massProfit.Div(EXPSACLE))
 		return nil
 	}
 
@@ -111,8 +132,17 @@ func (s *Scanner) liquidate(info *AccountInfo) error {
 		return err
 	}
 	if tx != nil {
-		logger.Printf("tx success, hash:%v\n", tx.Hash())
-		db.Put(dbm.PendingLiquidationTxStoreKey(account.Bytes()), big.NewInt(int64(currentHeight)).Bytes(), nil)
+		pendingLiquidation := PendingLiquidation{
+			Hash:   tx.Hash(),
+			Height: currentHeight,
+		}
+		logger.Printf("sending liquidationtx success, hash:%v\n", tx.Hash())
+		bz, err := json.Marshal(pendingLiquidation)
+		if err != nil {
+			logger.Printf("marshal pendingLiquidation error:%v\n", err)
+			return err
+		}
+		db.Put(dbm.PendingLiquidationTxStoreKey(account.Bytes()), bz, nil)
 	}
 
 	return nil
@@ -157,14 +187,31 @@ func (s *Scanner) checkPendingLiquidation(account common.Address, currentHeight 
 			logger.Printf("checkPendingLiquidation, fail to get PendingLiquidationTx,err:%v\n", err)
 			return err
 		}
-
-		recordHeight := big.NewInt(0).SetBytes(bz).Uint64()
-		if currentHeight-recordHeight <= ForbiddenPeriodForPendingLiquidation {
-			err = fmt.Errorf("checkPendingLiquidation, forbidden pending %v liquidation temporay, currentHeight:%v, recordHeight:%v\n", account, currentHeight, recordHeight)
-			logger.Printf("checkPendingLiquidation, forbidden pending %v liquidation temporay, currentHeight:%v, recordHeight:%v\n", account, currentHeight, recordHeight)
+		var pendingTx PendingLiquidation
+		err = json.Unmarshal(bz, &pendingTx)
+		if err != nil {
+			logger.Printf("checkPendingLiquidation, fail to unmarshal PendingLiquidationTx,err:%v\n", err)
 			return err
 		}
-		db.Delete(dbm.PendingLiquidationTxStoreKey(account.Bytes()), nil)
+
+		receipt, err := s.c.TransactionReceipt(context.Background(), pendingTx.Hash)
+		if err != nil {
+			logger.Printf("checkPendingLiquidation, fail to get PendingLiquidationTx:%v,err:%v\n", pendingTx, err)
+			return err
+		}
+		if receipt != nil {
+			//previous tx has been executed
+			db.Delete(dbm.PendingLiquidationTxStoreKey(account.Bytes()), nil)
+			if receipt.Status == types.ReceiptStatusFailed {
+				db.Put(dbm.BadLiquidationTxStoreKey(account.Bytes()), big.NewInt(int64(pendingTx.Height)).Bytes(), nil)
+				err = fmt.Errorf("checkPendingLiquidation, %v fail", pendingTx)
+				return err
+			}
+			return nil
+		} else {
+			err = fmt.Errorf("checkPendingLiquidation, PendingLiquidationTx:%v is still pending", pendingTx)
+			return err
+		}
 	}
 	return nil
 }
@@ -174,8 +221,8 @@ func (s *Scanner) doLiquidation(borrower common.Address, repayVaiAmount *big.Int
 	vaiController := s.vaiController
 	publicKeyECDSA, _ := publicKey.(*ecdsa.PublicKey)
 
-	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-	nonce, err := s.c.PendingNonceAt(context.Background(), fromAddress)
+	repayer := crypto.PubkeyToAddress(*publicKeyECDSA)
+	nonce, err := s.c.PendingNonceAt(context.Background(), repayer)
 	if err != nil {
 		return nil, err
 	}
@@ -186,8 +233,12 @@ func (s *Scanner) doLiquidation(borrower common.Address, repayVaiAmount *big.Int
 	}
 
 	gasLimit := uint64(3000000)
+	chainId, err := s.c.ChainID(context.Background())
+	if err != nil {
+		return nil, err
+	}
 
-	auth, _ := bind.NewKeyedTransactorWithChainID(s.PrivateKey, big.NewInt(ChainID))
+	auth, _ := bind.NewKeyedTransactorWithChainID(s.PrivateKey, chainId)
 	auth.Value = big.NewInt(0)
 	auth.Nonce = big.NewInt(int64(nonce))
 	auth.GasPrice = gasPrice

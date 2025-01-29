@@ -11,10 +11,7 @@ type Hash [HashLength]byte
 
 var (
 	KeyLatestHandledHeight     = []byte("latest_handled_height")
-	KeyCloseFactor             = []byte("close_factor")
-	KeyBorrowerNumber          = []byte("number_of_borrowers")
 	BorrowersPrefix            = []byte("borrowers") //prefix with all borrowers
-	PricesPrefix               = []byte("prices")
 	AccountPrefix              = []byte("account")
 	MarketPrefix               = []byte("market")
 	MarketMemberPrefix         = []byte("market_member")
@@ -28,10 +25,6 @@ var (
 	BadLiquidationTxPrefix     = []byte("bad_liquidation_tx")
 	PendingLiquidationTxPrefix = []byte("pending_liquidation_tx")
 )
-
-func BorrowerNumberKey() []byte {
-	return KeyBorrowerNumber
-}
 
 func LatestHandledHeightStoreKey() []byte {
 	return KeyLatestHandledHeight

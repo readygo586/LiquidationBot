@@ -6,12 +6,7 @@ import (
 )
 
 const (
-	ChainID = 10086
-)
-
-const (
-	ForbiddenPeriodForBadLiquidation     = 200 //200 block
-	ForbiddenPeriodForPendingLiquidation = 200
+	ForbiddenPeriodForBadLiquidation = 200 //200 block
 )
 
 const (
@@ -23,15 +18,14 @@ const (
 	MarketExited        = "0xe699a64c18b07ac5b7301aa273f36a2287239eb9501d81950672794afba29a0d"
 
 	//topics in VaiController
-	MintVAI      = "0x002e68ab1600fc5e7290e2ceaa79e2f86b4dbaca84a48421e167e0b40409218a"
-	RepayVAI     = "0x1db858e6f7e1a0d5e92c10c6507d42b3dabfe0a4867fe90c5a14d9963662ef7e"
-	LiquidateVAI = "0x42d401f96718a0c42e5cea8108973f0022677b7e2e5f4ee19851b2de7a0394e7"
+	MintVAI  = "0x002e68ab1600fc5e7290e2ceaa79e2f86b4dbaca84a48421e167e0b40409218a"
+	RepayVAI = "0x1db858e6f7e1a0d5e92c10c6507d42b3dabfe0a4867fe90c5a14d9963662ef7e"
 
 	//topics in vToken
 	Transfer = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-	//PriceChanged
-	PriceUpdated = ""
+	//PriceUpdated
+	PriceUpdated = "0x7d8cee5d1217e47a14a662098e84a7758580aaf78f430c07c543249234e867bf"
 )
 
 const (

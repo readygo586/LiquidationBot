@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/readygo67/LiquidationBot/config"
-	"github.com/readygo67/LiquidationBot/server"
+	"github.com/readygo586/LiquidationBot/config"
+	"github.com/readygo586/LiquidationBot/scanner"
 	"github.com/spf13/cobra"
 	"os"
 )
@@ -42,7 +42,7 @@ func StartCmd() *cobra.Command {
 				panic(err)
 			}
 
-			server.Start(cfg)
+			scanner.Start(cfg)
 			return nil
 		},
 	}

@@ -14,28 +14,15 @@ var (
 	wBNBAddress = common.HexToAddress("0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c")
 )
 
-//const Mint = "0x4c209b5fc8ad50758f13e2e1088ba56a560dff690a1c6fef26394f4c03821c4f"
-//const Redeem = "0xe5b754fb1abb7f01b499791d0b820ae3b6af3424ac1c59768edb53f4ec31a929"
-//const MintBehalf = "0x297989b84a5f5b82d2ee0c266504c19bd9b10b410f187dc72ca4b0f0faecb345"
-//const Borrow = "0x13ed6866d4e1ee6da46f845c46d7e54120883d75c5ea9a2dacc1c4ca8984ab80"
-//const RepayBorrow = "0x1a2a22cb034d26d1854bdc6666a5b91fe25efbbb5dcad3b0355478d6f5c362a1"
-//const LiquidateBorrow = "0x298637f684da70674f26509b10f07ec2fbc77a335ab1e7d6215a4b2484d8bb52"
-
-// topics in PriceOralce
-//const PriceUpdated = ""
-
-//const VaiController = "0x96ae4986D9ff19992dA84B5DBA9790cAE7246b80"
-//const Comptroller = "0xB4Abb34e08094B1915Ac3f7882aed81d0104b121"
-//const Oralce = "0x6B392885f26b718C149f759B591094a06787A289"
-
 // build QueryFilter for comptroller, vaiController, oracle
-func buildQueryWithoutHeight(comptroller, vaiController, oracle common.Address) ethereum.FilterQuery {
-	addresses := []common.Address{comptroller, vaiController, oracle}
+func buildQueryWithoutHeight(comptroller, vaiController common.Address, feeders []common.Address) ethereum.FilterQuery {
+	addresses := []common.Address{comptroller, vaiController}
+	addresses = append(addresses, feeders...)
 
 	var _topics []common.Hash
 	_topics = append(_topics,
 		common.HexToHash(MarketListed), common.HexToHash(NewCloseFactor), common.HexToHash(NewCollateralFactor), common.HexToHash(MarketEntered), common.HexToHash(MarketExited),
-		common.HexToHash(MintVAI), common.HexToHash(RepayVAI), common.HexToHash(LiquidateVAI),
+		common.HexToHash(MintVAI), common.HexToHash(RepayVAI), //vaiController event
 		common.HexToHash(PriceUpdated),
 	)
 	topics := [][]common.Hash{_topics}
@@ -172,11 +159,6 @@ func decodeRepayVAI(log types.Log) (*RepayVaiAmountChanged, error) {
 	}, nil
 }
 
-func decodeLiquidateVAI(log types.Log) (*VTokenAmountChanged, error) {
-	panic("not implemented, in liquidation, borrower's vToken changed is covered by vToken's transfer event")
-	return nil, nil
-}
-
 func decodeVTokenTransfer(log types.Log) (*VTokenAmountChanged, error) {
 	topics := log.Topics
 	data := log.Data
@@ -199,9 +181,21 @@ func decodeVTokenTransfer(log types.Log) (*VTokenAmountChanged, error) {
 	}, nil
 }
 
-func decodePriceUpdate(log types.Log) (*PriceChanged, error) {
-	panic("not implemented")
-	return nil, nil
+func decodePriceUpdate(feederMap map[common.Address]common.Address, log types.Log) (*PriceChanged, error) {
+	topics := log.Topics
+	data := log.Data
+
+	if topics[0].Hex() != PriceUpdated || len(topics) != 2 {
+		return nil, fmt.Errorf("invalid topic")
+	}
+	price := big.NewInt(0).SetBytes(data[0:32])
+	market := feederMap[log.Address]
+	return &PriceChanged{
+		Market:        market,
+		Price:         decimal.NewFromBigInt(price, 0),
+		UpdatedHeight: log.BlockNumber,
+	}, nil
+
 }
 
 /*
@@ -348,7 +342,7 @@ func (s *Scanner) DecodeLog(log types.Log) error {
 		s.vTokenAmountChangedCh <- change
 
 	case PriceUpdated:
-		change, err := decodePriceUpdate(log)
+		change, err := decodePriceUpdate(s.feederMap, log)
 		if err != nil {
 			return err
 		}

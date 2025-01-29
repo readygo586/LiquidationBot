@@ -1,19 +1,15 @@
-package server
+package scanner
 
 import (
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/readygo67/LiquidationBot/config"
-	dbm "github.com/readygo67/LiquidationBot/db"
+	"github.com/readygo586/LiquidationBot/config"
+	dbm "github.com/readygo586/LiquidationBot/db"
 	"log"
 	"math/big"
 	"os"
 	"os/signal"
 	"syscall"
 )
-
-const DefaultStartHeigt = uint64(13000000)
-
-var logger = log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lmicroseconds)
 
 func Start(cfg *config.Config) error {
 	client, err := ethclient.Dial(cfg.RpcUrl)
@@ -27,7 +23,7 @@ func Start(cfg *config.Config) error {
 	}
 	defer db.Close()
 
-	startHeight := DefaultStartHeigt
+	startHeight := cfg.StartHeight
 	var storedHeight uint64
 	exist, err := db.Has(dbm.LatestHandledHeightStoreKey(), nil)
 	if exist {
@@ -47,13 +43,13 @@ func Start(cfg *config.Config) error {
 		panic(err)
 	}
 
-	syncer := NewSyncer(client, db, cfg.Comptroller, cfg.Oracle, cfg.PancakeRouter, cfg.Liquidator, cfg.PrivateKey)
-
-	syncer.Start()
+	scanner := NewScanner(client, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
+	scanner.doApprove()
+	scanner.Start()
 
 	waitExit()
 
-	syncer.Stop()
+	scanner.Stop()
 	return nil
 }
 
