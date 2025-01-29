@@ -78,10 +78,25 @@ func (s *Scanner) liquidate(info *AccountInfo) error {
 	errCode := big.NewInt(0)
 
 	var repayAmount decimal.Decimal
-
+	var actualRepayValue decimal.Decimal
 	//currently, repay VAI only
 	if repayMarket == s.vaiControllerAddr {
 		repayAmount = repayValue.Truncate(0).Mul(decimal.New(9999, -4)) //不能100%的repay,负责会报TOO_MUCH_REPAY的错误
+		actualRepayValue = repayValue.Truncate(0).Mul(decimal.New(9999, -4))
+		publicKey := s.PrivateKey.Public()
+		publicKeyECDSA, _ := publicKey.(*ecdsa.PublicKey)
+		repayer := crypto.PubkeyToAddress(*publicKeyECDSA)
+
+		_vaiBalance, err := s.vai.BalanceOf(nil, repayer)
+		if err != nil {
+			return err
+		}
+
+		vaiBalance := decimal.NewFromBigInt(_vaiBalance, 0)
+		if vaiBalance.Cmp(repayAmount) == -1 {
+			repayAmount = vaiBalance
+		}
+
 		errCode, bigSeizedVTokenAmount, err = comptroller.LiquidateVAICalculateSeizeTokens(nil, seizedMarket, repayAmount.BigInt())
 		if err != nil || errCode.Cmp(BigZero) != 0 {
 			logger.Printf("processLiquidationReq, fail to get LiquidateVAICalculateSeizeTokens, account:%v, err:%v, errCode:%v\n", account, err, errCode)
@@ -95,12 +110,12 @@ func (s *Scanner) liquidate(info *AccountInfo) error {
 	seizedUnderlyingTokenAmount := seizedVTokenAmount.Mul(assets[0].ExchangeRate).Div(EXPSACLE)
 	seizedUnderlyingTokenValue := seizedUnderlyingTokenAmount.Mul(assets[0].Price).Div(EXPSACLE)
 
-	ratio := seizedUnderlyingTokenValue.Div(repayValue)
-	fmt.Printf("seizedUnderlyingTokenValue:%v, repayValue:%v, ratio:%v\n", seizedUnderlyingTokenValue, repayValue, ratio) //
+	ratio := seizedUnderlyingTokenValue.Div(actualRepayValue)
+	fmt.Printf("seizedUnderlyingTokenValue:%v, actualRepayValue:%v, ratio:%v\n", seizedUnderlyingTokenValue, actualRepayValue, ratio) //
 	//
-	massProfit := seizedUnderlyingTokenValue.Sub(repayValue)
+	massProfit := seizedUnderlyingTokenValue.Sub(actualRepayValue)
 	if massProfit.Cmp(ProfitThreshold) == -1 {
-		logger.Printf("processLiquidationReq, profit:%v < 5 USD, omit\n", massProfit.Div(EXPSACLE))
+		logger.Printf("processLiquidationReq, profit:%v < 1 USD, omit\n", massProfit.Div(EXPSACLE))
 		return nil
 	}
 
@@ -174,8 +189,8 @@ func (s *Scanner) doLiquidation(borrower common.Address, repayVaiAmount *big.Int
 	vaiController := s.vaiController
 	publicKeyECDSA, _ := publicKey.(*ecdsa.PublicKey)
 
-	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-	nonce, err := s.c.PendingNonceAt(context.Background(), fromAddress)
+	repayer := crypto.PubkeyToAddress(*publicKeyECDSA)
+	nonce, err := s.c.PendingNonceAt(context.Background(), repayer)
 	if err != nil {
 		return nil, err
 	}
@@ -186,8 +201,12 @@ func (s *Scanner) doLiquidation(borrower common.Address, repayVaiAmount *big.Int
 	}
 
 	gasLimit := uint64(3000000)
+	chainId, err := s.c.ChainID(context.Background())
+	if err != nil {
+		return nil, err
+	}
 
-	auth, _ := bind.NewKeyedTransactorWithChainID(s.PrivateKey, big.NewInt(ChainID))
+	auth, _ := bind.NewKeyedTransactorWithChainID(s.PrivateKey, chainId)
 	auth.Value = big.NewInt(0)
 	auth.Nonce = big.NewInt(int64(nonce))
 	auth.GasPrice = gasPrice

@@ -7,7 +7,7 @@ import (
 )
 
 func TestConfig(t *testing.T) {
-	config, err := New("../config.yml")
+	config, err := New("../config_test.yml")
 	require.NoError(t, err)
 	assert.Equal(t, "testnet", config.Network)
 	t.Logf("rpc_url:%+v\n", config.RpcUrl)

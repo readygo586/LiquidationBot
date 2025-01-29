@@ -1,0 +1,12 @@
+rpc_url: "https://frequent-side-arrow.bsc-testnet.quiknode.pro/d53e466c6ac0b3adaf534a1c641d6264ee4f9886"
+network: testnet
+comptroller : "0xB4Abb34e08094B1915Ac3f7882aed81d0104b121"
+vai_controller: "0x96ae4986D9ff19992dA84B5DBA9790cAE7246b80"
+vai: "0x7C4f97bF4c28732F9E257B6dF24D12C8Bf43E1f8"
+wbtc: "0x39d770382A22cdb61AD47B6faFC76A872d4fb3e8"
+weth: "0xB167B4136446a07fFbC83946C0F66Fa4289e2953"
+oracle: "0x6B392885f26b718C149f759B591094a06787A289"
+private_key: "329d45df2086825022b2b648fc39ebc4f3edaa0dac7612af86b923f57fd6e26c"
+db: testdb
+start_height: 46341400
+override: false

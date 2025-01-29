@@ -281,6 +281,7 @@ func copyPrices(src map[common.Address]*TokenPrice) map[common.Address]*TokenPri
 
 func (info *AccountInfo) toReadable() AccountInfo {
 	readableInfo := AccountInfo{}
+	readableInfo.Account = info.Account
 	readableInfo.HealthFactor = info.HealthFactor
 	readableInfo.MaxLoanValue = info.MaxLoanValue.Div(EXPSACLE)
 	readableInfo.MaxLoanMarket = info.MaxLoanMarket
@@ -291,6 +292,7 @@ func (info *AccountInfo) toReadable() AccountInfo {
 	for _, asset := range info.Assets {
 		var readableAsset Asset
 		readableAsset.Symbol = asset.Symbol
+		readableAsset.Market = asset.Market
 		readableAsset.Balance = asset.Balance
 		readableAsset.Loan = asset.Loan
 		readableAsset.CollateralFactor = asset.CollateralFactor.Div(EXPSACLE)
