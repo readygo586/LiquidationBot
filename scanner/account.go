@@ -6,6 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	dbm "github.com/readygo586/LiquidationBot/db"
 	"github.com/shopspring/decimal"
+	"log"
 	"runtime"
 	"sync"
 )
@@ -31,10 +32,6 @@ type AccountInfo struct {
 	VaiLoan       decimal.Decimal
 	Height        uint64
 	Assets        []Asset
-}
-
-type Liquidation struct {
-	AccountInfo AccountInfo
 }
 
 func (s *Scanner) SyncAccountLoop() {
@@ -199,6 +196,7 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 
 	//trigger liquidation immediately, actually we can check GetAccountLiquidity without calculating healthFactor
 	errCode, _, shortfall, err := comptroller.GetAccountLiquidity(nil, account)
+	log.Printf("liquidation, GetAccountLiquidity, errCode:%v, shortfall:%v, err:%v\n", errCode, shortfall, err)
 	if err == nil && errCode.Cmp(BigZero) == 0 && shortfall.Cmp(BigZero) == 1 {
 		s.liquidationCh <- &info
 	}

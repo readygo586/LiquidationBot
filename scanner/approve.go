@@ -9,7 +9,7 @@ import (
 	"math/big"
 )
 
-func (s *Scanner) doApprove() (*types.Transaction, error) {
+func (s *Scanner) DoApprove() (*types.Transaction, error) {
 	publicKey := s.PrivateKey.Public()
 	vai := s.vai
 	publicKeyECDSA, _ := publicKey.(*ecdsa.PublicKey)

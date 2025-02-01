@@ -44,7 +44,7 @@ func Start(cfg *config.Config) error {
 	}
 
 	scanner := NewScanner(client, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
-	scanner.doApprove()
+	scanner.DoApprove()
 	scanner.Start()
 
 	waitExit()

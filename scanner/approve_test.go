@@ -20,7 +20,7 @@ func Test_Approve(t *testing.T) {
 	defer os.RemoveAll("testdb1")
 
 	s := NewScanner(c, db, cfg.Comptroller, cfg.VaiController, cfg.Vai, cfg.Oracle, cfg.PrivateKey)
-	tx, err := s.doApprove()
+	tx, err := s.DoApprove()
 	assert.NoError(t, err)
 	fmt.Printf("tx: %v\n", tx.Hash())
 

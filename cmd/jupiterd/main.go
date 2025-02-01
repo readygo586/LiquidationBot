@@ -13,8 +13,8 @@ func main() {
 	cobra.EnableCommandSorting = false
 
 	rootCmd := &cobra.Command{
-		Use:   "venusd",
-		Short: "venus liquidation bot Daemon (server)",
+		Use:   "jupiterd",
+		Short: "jupiter liquidation bot Daemon (server)",
 	}
 
 	rootCmd.AddCommand(StartCmd())
@@ -33,10 +33,10 @@ func StartCmd() *cobra.Command {
 	var configFile string
 	cmd := &cobra.Command{
 		Use:   "start",
-		Short: "Run the venus liquidation bot server",
-		Long:  `Run the venus liquidation bot server`,
+		Short: "Run the jupiter liquidation bot server",
+		Long:  `Run the jupiter liquidation bot server`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			log.Info("starting venus liquidation bot")
+			log.Info("starting jupiter liquidation bot")
 			cfg, err := config.New(configFile)
 			if err != nil {
 				panic(err)
@@ -46,7 +46,7 @@ func StartCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.PersistentFlags().StringVarP(&configFile, "config", "f", "../config.yml", "config file (default is ../config.yaml)")
+	cmd.PersistentFlags().StringVarP(&configFile, "config", "f", "../../config.yml", "config file (default is ../config.yaml)")
 	return cmd
 }
 
@@ -55,10 +55,10 @@ func StartCmd() *cobra.Command {
 func VersionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
-		Short: "Get venus liquidation bot version",
-		Long:  `Get venus liquidation bot version`,
+		Short: "Get jupiter liquidation bot version",
+		Long:  `Get jupiter liquidation bot version`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("venus liquidation bot v0.1")
+			fmt.Println("jupiter liquidation bot v0.1")
 			return nil
 		},
 	}

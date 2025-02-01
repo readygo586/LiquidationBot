@@ -334,7 +334,7 @@ func NewScanner(
 }
 
 func (s *Scanner) Start() {
-	logger.Printf("server start")
+	logger.Printf("scanner start")
 
 	s.wg.Add(11)
 	go s.ScanLoop()

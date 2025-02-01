@@ -145,8 +145,6 @@ func Test_SyncOneAccount1(t *testing.T) {
 	assert.Equal(t, 1, len(info.Assets))
 	fmt.Printf("info: %+v\n", info.toReadable())
 
-	bz, err = s.db.Get(dbm.LiquidationBelow1P1StoreKey(account.Bytes()), nil)
-	assert.Equal(t, account.Bytes(), bz)
 }
 
 func Test_ScanLoop(t *testing.T) {

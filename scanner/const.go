@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	ForbiddenPeriodForBadLiquidation = 200 //200 block
+	ForbiddenPeriodForBadLiquidation = 50 //200 block
 )
 
 const (

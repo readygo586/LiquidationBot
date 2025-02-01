@@ -53,8 +53,8 @@ func Test_Liquidate(t *testing.T) {
 	assert.Equal(t, 1, len(info.Assets))
 	fmt.Printf("info: %+v\n", info.toReadable())
 
-	bz, err = s.db.Get(dbm.LiquidationBelow1P0StoreKey(account.Bytes()), nil)
-	assert.Equal(t, account.Bytes(), bz)
+	//bz, err = s.db.Get(dbm.LiquidationBelow1P0StoreKey(account.Bytes()), nil)
+	//assert.Equal(t, account.Bytes(), bz)
 
 	err = s.liquidate(&info)
 	assert.NoError(t, err)

@@ -190,6 +190,10 @@ func decodePriceUpdate(feederMap map[common.Address]common.Address, log types.Lo
 	}
 	price := big.NewInt(0).SetBytes(data[0:32])
 	market := feederMap[log.Address]
+	if log.Address == common.HexToAddress("0x33deb1bCDCC9ecc2056F87A20CFF3dcBd54a37f6") { //btc
+		multiplier := big.NewInt(10000000000)
+		price = big.NewInt(0).Mul(price, multiplier)
+	}
 	return &PriceChanged{
 		Market:        market,
 		Price:         decimal.NewFromBigInt(price, 0),
@@ -197,86 +201,6 @@ func decodePriceUpdate(feederMap map[common.Address]common.Address, log types.Lo
 	}, nil
 
 }
-
-/*
-func decodeMint(log types.Log) (*common.Address, *big.Int, error) {
-	topics := log.Topics
-	data := log.Data
-
-	if topics[0].Hex() != Mint || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
-	}
-
-	address := common.BytesToAddress(data[0:32])
-	amount := big.NewInt(0).SetBytes(data[64:96])
-	return &address, amount, nil
-}
-
-func decodeMintBehalf(log types.Log) (*common.Address, *big.Int, error) {
-	topics := log.Topics
-	data := log.Data
-
-	if topics[0].Hex() != MintBehalf || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
-	}
-
-	address := common.BytesToAddress(data[32:64])
-	amount := big.NewInt(0).SetBytes(data[96:128])
-	return &address, amount, nil
-}
-
-func decodeRedeem(log types.Log) (*common.Address, *big.Int, error) {
-	topics := log.Topics
-	data := log.Data
-
-	if topics[0].Hex() != Redeem || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
-	}
-
-	address := common.BytesToAddress(data[0:32])
-	amount := big.NewInt(0).SetBytes(data[64:96])
-	return &address, amount, nil
-}
-
-func decodeBorrow(log types.Log) (*common.Address, *big.Int, error) {
-	topics := log.Topics
-	data := log.Data
-
-	if topics[0].Hex() != Borrow || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
-	}
-
-	address := common.BytesToAddress(data[0:32])
-	amount := big.NewInt(0).SetBytes(data[64:96])
-	return &address, amount, nil
-}
-
-func decodeRepayBorrow(log types.Log) (*common.Address, *big.Int, error) {
-	topics := log.Topics
-	data := log.Data
-
-	if topics[0].Hex() != RepayBorrow || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
-	}
-
-	address := common.BytesToAddress(data[32:64])
-	amount := big.NewInt(0).SetBytes(data[64:96])
-	return &address, amount, nil
-}
-
-func decodeLiquidateBorrow(log types.Log) (*common.Address, *big.Int, error) {
-	topics := log.Topics
-	data := log.Data
-
-	if topics[0].Hex() != LiquidateBorrow || len(topics) != 1 {
-		return nil, nil, fmt.Errorf("invalid topic")
-	}
-
-	address := common.BytesToAddress(data[32:64])
-	amount := big.NewInt(0).SetBytes(data[64:96])
-	return &address, amount, nil
-}
-*/
 
 func (s *Scanner) DecodeLog(log types.Log) error {
 	if log.Removed == true {

@@ -29,7 +29,7 @@ func (s *Scanner) LiquidationLoop() {
 			return
 
 		case account := <-s.liquidationCh:
-			logger.Printf("receive priority liquidation:%v\n", account)
+			logger.Printf("receive liquidation:%v\n", account)
 			s.liquidate(account)
 		}
 	}
@@ -52,12 +52,14 @@ func (s *Scanner) liquidate(info *AccountInfo) error {
 	//check BadLiquidationTx
 	err = s.checkBadLiquidation(account, currentHeight)
 	if err != nil {
+		logger.Printf("processLiquidationReq, fail to checkBadLiquidation,err:%v\n", err)
 		return err
 	}
 
 	//check PendingLiquidationTx
 	err = s.checkPendingLiquidation(account, currentHeight)
 	if err != nil {
+		logger.Printf("processLiquidationReq, fail to checkPendingLiquidation,err:%v\n", err)
 		return err
 	}
 
@@ -117,7 +119,7 @@ func (s *Scanner) liquidate(info *AccountInfo) error {
 	seizedUnderlyingTokenValue := seizedUnderlyingTokenAmount.Mul(assets[0].Price).Div(EXPSACLE)
 
 	ratio := seizedUnderlyingTokenValue.Div(actualRepayValue)
-	fmt.Printf("seizedUnderlyingTokenValue:%v, actualRepayValue:%v, ratio:%v\n", seizedUnderlyingTokenValue, actualRepayValue, ratio) //
+	fmt.Printf("bigSeizedVTokenAmount:%v, seizedUnderlyingTokenValue:%v, actualRepayValue:%v, ratio:%v\n", bigSeizedVTokenAmount, seizedUnderlyingTokenValue, actualRepayValue, ratio) //
 	//
 	massProfit := seizedUnderlyingTokenValue.Sub(actualRepayValue)
 	if massProfit.Cmp(ProfitThreshold) == -1 {
@@ -213,6 +215,7 @@ func (s *Scanner) checkPendingLiquidation(account common.Address, currentHeight 
 			return err
 		}
 	}
+
 	return nil
 }
 

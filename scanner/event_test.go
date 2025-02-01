@@ -403,3 +403,10 @@ func TestLiquidateVaiEvent_47797935(t *testing.T) {
 	assert.Equal(t, "-16000000000000000000", event.Amount.String())
 	assert.EqualValues(t, 46373178, event.UpdatedHeight)
 }
+
+func Test1E10(t *testing.T) {
+	OneE10 := big.NewInt(0).Exp(big.NewInt(10), big.NewInt(10), nil)
+	fmt.Printf("1e10: %s\n", OneE10.String())
+	multiplier := big.NewInt(10000000000)
+	fmt.Printf("multiplier: %s\n", multiplier.String())
+}

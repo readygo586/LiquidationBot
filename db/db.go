@@ -34,15 +34,6 @@ func BorrowersStoreKey(account []byte) []byte {
 	return append(BorrowersPrefix, account...)
 }
 
-// record account joined markets
-func JoinedMarketMemberStoreKey(account []byte, address []byte) []byte {
-	bz := append(JoinedMarketPrefix, account...)
-	return append(bz, address...)
-}
-
-func MarketStoreKey(market []byte) []byte {
-	return append(MarketPrefix, market...)
-}
 func MarketMemberStoreKey(market []byte, account []byte) []byte {
 	bz := append(MarketMemberPrefix, market...)
 	return append(bz, account...)
