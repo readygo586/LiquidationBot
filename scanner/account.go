@@ -162,7 +162,7 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 			ExchangeRate:     exchangeRate,
 		}
 
-		//logger.Printf("syncOneAccount, symbol:%v, price:%v, exchangeRate:%v, asset:%+v\n", symbol, price, bigExchangeRate, asset)
+		logger.Printf("syncOneAccount,symbol:%v,  asset:%+v\n", asset.Symbol, asset)
 		assets = append(assets, asset)
 		if loan.Cmp(maxLoanValue) == 1 {
 			maxLoanValue = loan
@@ -181,7 +181,10 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 		maxLoanMarket = s.vaiControllerAddr
 	}
 
-	currentHeight, _ := s.c.BlockNumber(context.Background())
+	currentHeight, err := s.c.BlockNumber(context.Background())
+	if err != nil {
+		return err
+	}
 	info := AccountInfo{
 		Account:       account,
 		HealthFactor:  healthFactor,
@@ -197,7 +200,7 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 	//trigger liquidation immediately, actually we can check GetAccountLiquidity without calculating healthFactor
 	errCode, _, shortfall, err := comptroller.GetAccountLiquidity(nil, account)
 	log.Printf("liquidation, GetAccountLiquidity, errCode:%v, shortfall:%v, err:%v\n", errCode, shortfall, err)
-	if err == nil && errCode.Cmp(BigZero) == 0 && shortfall.Cmp(BigZero) == 1 {
+	if err == nil && errCode.Cmp(BigZero) == 0 && shortfall.Cmp(BigZero) == 1 && totalCollateral.Cmp(decimal.Zero) == 1 {
 		s.liquidationCh <- &info
 	}
 

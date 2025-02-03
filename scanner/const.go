@@ -29,7 +29,9 @@ const (
 )
 
 const (
-	ConfirmHeight = 0
+	ConfirmHeight          = 0
+	SyncIntervalBelow1P0   = 30 //in secs
+	SyncIntervalBackGround = 1200
 )
 
 var (
@@ -44,5 +46,6 @@ var (
 	Decimal3P0, _         = decimal.NewFromString("3.0")
 	DecimalNonProfit, _   = decimal.NewFromString("255") //magicnumber for nonprofit
 	ProfitThreshold       = decimal.New(1, 18)           //1 USDT
-	MaxLoanValueThreshold = decimal.New(100, 18)         //100 USDT
+	MaxLoanValueThreshold = decimal.New(100, 18)
+	//100 USDT
 )

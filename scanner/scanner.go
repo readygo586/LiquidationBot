@@ -336,7 +336,7 @@ func NewScanner(
 func (s *Scanner) Start() {
 	logger.Printf("scanner start")
 
-	s.wg.Add(11)
+	s.wg.Add(13)
 	go s.ScanLoop()
 
 	//event processors
@@ -351,6 +351,8 @@ func (s *Scanner) Start() {
 
 	//sync account
 	go s.SyncAccountLoop()
+	go s.SyncAccountsBelow1P0Loop()
+	go s.SyncAccountsBackgroundLoop()
 
 	//liquidation
 	go s.LiquidationLoop()

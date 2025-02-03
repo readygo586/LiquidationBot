@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/readygo586/LiquidationBot/db"
 	"github.com/shopspring/decimal"
+	"log"
 	"math/big"
 	"sort"
 )
@@ -39,27 +40,31 @@ func (s *Scanner) liquidate(info *AccountInfo) error {
 	comptroller := s.comptroller
 	account := info.Account
 	db := s.db
-
 	closeFactor := s.closeFactor
 
+	if len(info.Assets) == 0 {
+		err := fmt.Errorf("no assets")
+		logger.Printf("liquidate, :%v\n", err)
+		return err
+	}
 	//current height
 	currentHeight, err := s.c.BlockNumber(context.Background())
 	if err != nil {
-		logger.Printf("processLiquidationReq, fail to get blockNumber,err:%v\n", err)
+		logger.Printf("liquidate, fail to get blockNumber,err:%v\n", err)
 		return err
 	}
 
 	//check BadLiquidationTx
 	err = s.checkBadLiquidation(account, currentHeight)
 	if err != nil {
-		logger.Printf("processLiquidationReq, fail to checkBadLiquidation,err:%v\n", err)
+		logger.Printf("liquidate, fail to checkBadLiquidation,err:%v\n", err)
 		return err
 	}
 
 	//check PendingLiquidationTx
 	err = s.checkPendingLiquidation(account, currentHeight)
 	if err != nil {
-		logger.Printf("processLiquidationReq, fail to checkPendingLiquidation,err:%v\n", err)
+		logger.Printf("liquidate, fail to checkPendingLiquidation,err:%v\n", err)
 		return err
 	}
 
@@ -90,7 +95,7 @@ func (s *Scanner) liquidate(info *AccountInfo) error {
 	//currently, repay VAI only
 	if repayMarket == s.vaiControllerAddr {
 		repayAmount = repayValue.Truncate(0).Mul(decimal.New(9999, -4)) //不能100%的repay,负责会报TOO_MUCH_REPAY的错误
-		actualRepayValue = repayValue.Truncate(0).Mul(decimal.New(9999, -4))
+		actualRepayValue = repayAmount
 		publicKey := s.PrivateKey.Public()
 		publicKeyECDSA, _ := publicKey.(*ecdsa.PublicKey)
 		repayer := crypto.PubkeyToAddress(*publicKeyECDSA)
@@ -107,13 +112,32 @@ func (s *Scanner) liquidate(info *AccountInfo) error {
 
 		errCode, bigSeizedVTokenAmount, err = comptroller.LiquidateVAICalculateSeizeTokens(nil, seizedMarket, repayAmount.BigInt())
 		if err != nil || errCode.Cmp(BigZero) != 0 {
-			logger.Printf("processLiquidationReq, fail to get LiquidateVAICalculateSeizeTokens, account:%v, err:%v, errCode:%v\n", account, err, errCode)
+			logger.Printf("liquidate, fail to get LiquidateVAICalculateSeizeTokens, account:%v, err:%v, errCode:%v\n", account, err, errCode)
 			return err
+		}
+
+		bigAvailableVTokenAmount, err := s.vbep20s[seizedMarket].BalanceOf(nil, account)
+		if err != nil {
+			logger.Printf("liquidate, fail to get BalanceOf, err:%v\n", err)
+			return err
+		}
+
+		//not enough vToken to seized, recalculate repayAmount
+		if bigAvailableVTokenAmount.Cmp(bigSeizedVTokenAmount) == -1 {
+			log.Printf("liquidate, not enough vToken to seized, recalculate repayAmount, account:%v, seizedMarket:%v, bigAvailableVTokenAmount:%v, bigSeizedVTokenAmount:%v\n", account, seizedMarket, bigAvailableVTokenAmount, bigSeizedVTokenAmount)
+			repayAmount = repayAmount.Mul(decimal.NewFromBigInt(bigAvailableVTokenAmount, 0)).Div(decimal.NewFromBigInt(bigSeizedVTokenAmount, 0)).Sub(decimal.New(10, 0))
+			actualRepayValue = repayAmount
+			errCode, bigSeizedVTokenAmount, err = comptroller.LiquidateVAICalculateSeizeTokens(nil, seizedMarket, repayAmount.BigInt())
+			if err != nil || errCode.Cmp(BigZero) != 0 {
+				logger.Printf("liquidate, fail to get LiquidateVAICalculateSeizeTokens, account:%v, err:%v, errCode:%v\n", account, err, errCode)
+				return err
+			}
 		}
 	} else {
 		panic("not implemented")
 	}
 
+	log.Printf("liquidate, finaly calculation result, account:%v, seizedMarket:%v, repayAmount:%v, actualRepayValue:%v, bigSeizedVTokenAmount:%v\n", account, seizedMarket, repayAmount, actualRepayValue, bigSeizedVTokenAmount)
 	seizedVTokenAmount := decimal.NewFromBigInt(bigSeizedVTokenAmount, 0)
 	seizedUnderlyingTokenAmount := seizedVTokenAmount.Mul(assets[0].ExchangeRate).Div(EXPSACLE)
 	seizedUnderlyingTokenValue := seizedUnderlyingTokenAmount.Mul(assets[0].Price).Div(EXPSACLE)
@@ -130,7 +154,6 @@ func (s *Scanner) liquidate(info *AccountInfo) error {
 	tx, err := s.doLiquidation(account, repayAmount.BigInt(), seizedMarket)
 	if err != nil {
 		logger.Printf("doLiquidation error:%v\n", err)
-		db.Put(dbm.BadLiquidationTxStoreKey(account.Bytes()), big.NewInt(int64(currentHeight)).Bytes(), nil)
 		return err
 	}
 	if tx != nil {

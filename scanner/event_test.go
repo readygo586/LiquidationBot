@@ -162,6 +162,31 @@ func TestMintVaiEvent_46372737(t *testing.T) {
 	assert.EqualValues(t, 46372737, event.UpdatedHeight)
 }
 
+func TestMintVaiEvent_47895866(t *testing.T) {
+	cfg, err := config.New("../config.yml")
+	assert.NoError(t, err)
+	c, err := ethclient.Dial(cfg.RpcUrl)
+	assert.NoError(t, err)
+
+	_, err = c.BlockNumber(context.Background())
+	assert.NoError(t, err)
+
+	blockHeight := big.NewInt(47895866)
+
+	filter := buildQueryWithoutHeight(common.HexToAddress(cfg.Comptroller), common.HexToAddress(cfg.VaiController), nil)
+	filter.FromBlock = blockHeight
+	filter.ToBlock = blockHeight
+
+	logs, err := c.FilterLogs(context.Background(), filter)
+	assert.NoError(t, err)
+
+	event, err := decodeMintVAI(logs[0])
+	assert.NoError(t, err)
+	assert.Equal(t, "0x4e3CC26bce18b0F420155DCE102c976aF057867E", event.Account.Hex())
+	assert.Equal(t, "67454000000000000000000", event.Amount.String())
+	assert.EqualValues(t, 47895866, event.UpdatedHeight)
+}
+
 func TestRepayVaiEvent_46373178(t *testing.T) {
 	cfg, err := config.New("../config_test.yml")
 	assert.NoError(t, err)

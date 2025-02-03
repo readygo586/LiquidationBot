@@ -7,5 +7,5 @@ weth: "0x4354230038d0C3120B8756f1AbA72E9F4FC94979"
 oracle: "0xd62aB2b1792F536bea70b75db41D9C8B6b3c1dee"
 private_key: "329d45df2086825022b2b648fc39ebc4f3edaa0dac7612af86b923f57fd6e26c"
 db: testdb
-start_height: 47893220
+start_height: 47954622
 override: false
