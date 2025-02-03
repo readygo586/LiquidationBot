@@ -162,7 +162,7 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 			ExchangeRate:     exchangeRate,
 		}
 
-		logger.Printf("syncOneAccount,symbol:%v,  asset:%+v\n", asset.Symbol, asset)
+		//logger.Printf("syncOneAccount,symbol:%v,  asset:%+v\n", asset.Symbol, asset)
 		assets = append(assets, asset)
 		if loan.Cmp(maxLoanValue) == 1 {
 			maxLoanValue = loan
