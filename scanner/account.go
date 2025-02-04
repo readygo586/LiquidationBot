@@ -6,6 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	dbm "github.com/readygo586/LiquidationBot/db"
 	"github.com/shopspring/decimal"
+	"log"
 	"runtime"
 	"sync"
 )
@@ -31,10 +32,6 @@ type AccountInfo struct {
 	VaiLoan       decimal.Decimal
 	Height        uint64
 	Assets        []Asset
-}
-
-type Liquidation struct {
-	AccountInfo AccountInfo
 }
 
 func (s *Scanner) SyncAccountLoop() {
@@ -165,7 +162,7 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 			ExchangeRate:     exchangeRate,
 		}
 
-		//logger.Printf("syncOneAccount, symbol:%v, price:%v, exchangeRate:%v, asset:%+v\n", symbol, price, bigExchangeRate, asset)
+		//logger.Printf("syncOneAccount,symbol:%v,  asset:%+v\n", asset.Symbol, asset)
 		assets = append(assets, asset)
 		if loan.Cmp(maxLoanValue) == 1 {
 			maxLoanValue = loan
@@ -184,7 +181,10 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 		maxLoanMarket = s.vaiControllerAddr
 	}
 
-	currentHeight, _ := s.c.BlockNumber(context.Background())
+	currentHeight, err := s.c.BlockNumber(context.Background())
+	if err != nil {
+		return err
+	}
 	info := AccountInfo{
 		Account:       account,
 		HealthFactor:  healthFactor,
@@ -199,7 +199,8 @@ func (s *Scanner) syncOneAccount(account common.Address) error {
 
 	//trigger liquidation immediately, actually we can check GetAccountLiquidity without calculating healthFactor
 	errCode, _, shortfall, err := comptroller.GetAccountLiquidity(nil, account)
-	if err == nil && errCode.Cmp(BigZero) == 0 && shortfall.Cmp(BigZero) == 1 {
+	log.Printf("liquidation, GetAccountLiquidity, errCode:%v, shortfall:%v, err:%v\n", errCode, shortfall, err)
+	if err == nil && errCode.Cmp(BigZero) == 0 && shortfall.Cmp(BigZero) == 1 && totalCollateral.Cmp(decimal.Zero) == 1 {
 		s.liquidationCh <- &info
 	}
 
@@ -281,6 +282,7 @@ func copyPrices(src map[common.Address]*TokenPrice) map[common.Address]*TokenPri
 
 func (info *AccountInfo) toReadable() AccountInfo {
 	readableInfo := AccountInfo{}
+	readableInfo.Account = info.Account
 	readableInfo.HealthFactor = info.HealthFactor
 	readableInfo.MaxLoanValue = info.MaxLoanValue.Div(EXPSACLE)
 	readableInfo.MaxLoanMarket = info.MaxLoanMarket
@@ -291,6 +293,7 @@ func (info *AccountInfo) toReadable() AccountInfo {
 	for _, asset := range info.Assets {
 		var readableAsset Asset
 		readableAsset.Symbol = asset.Symbol
+		readableAsset.Market = asset.Market
 		readableAsset.Balance = asset.Balance
 		readableAsset.Loan = asset.Loan
 		readableAsset.CollateralFactor = asset.CollateralFactor.Div(EXPSACLE)

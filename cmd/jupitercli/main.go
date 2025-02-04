@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/readygo67/LiquidationBot/config"
-	dbm "github.com/readygo67/LiquidationBot/db"
-	"github.com/readygo67/LiquidationBot/server"
+	"github.com/readygo586/LiquidationBot/config"
+	dbm "github.com/readygo586/LiquidationBot/db"
+	"github.com/readygo586/LiquidationBot/scanner"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 	"github.com/syndtr/goleveldb/leveldb/util"
@@ -17,8 +17,8 @@ import (
 func main() {
 	cobra.EnableCommandSorting = false
 	rootCmd := &cobra.Command{
-		Use:   "venuscli",
-		Short: "venus liquidation bot client",
+		Use:   "jupitercli",
+		Short: "jupiter liquidation bot client",
 	}
 
 	rootCmd.AddCommand(queryCmd())
@@ -35,47 +35,15 @@ func queryCmd() *cobra.Command {
 	var configFile string
 	cmd := &cobra.Command{
 		Use:   "query",
-		Short: "querying subcommnd",
+		Short: "querying subcommand",
 	}
 
 	cmd.AddCommand(
-		totalCommand(&configFile),
 		accountCommand(&configFile),
 		listCommand(&configFile),
 		heightCommand(&configFile),
 	)
 	cmd.PersistentFlags().StringVarP(&configFile, "config", "f", "../config.yml", "config file (default is ../config.yml)")
-	return cmd
-}
-
-func totalCommand(configFile *string) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "total",
-		Short: "total accounts",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.New(*configFile)
-			if err != nil {
-				return err
-			}
-
-			if !fileExists(cfg.DB) {
-				return fmt.Errorf("db does not exist")
-			}
-
-			db, err := dbm.NewDB(cfg.DB)
-			if err != nil {
-				return err
-			}
-
-			bz, err := db.Get(dbm.BorrowerNumberKey(), nil)
-			if err != nil {
-				return err
-			}
-
-			fmt.Printf("total account number:%v\n", big.NewInt(0).SetBytes(bz).Int64())
-			return nil
-		},
-	}
 	return cmd
 }
 
@@ -137,7 +105,7 @@ func accountCommand(configFile *string) *cobra.Command {
 				return err
 			}
 
-			var info server.AccountInfo
+			var info scanner.AccountInfo
 			err = json.Unmarshal(bz, &info)
 			if err != nil {
 				return err
@@ -178,16 +146,16 @@ func listCommand(configFile *string) *cobra.Command {
 			}
 
 			var prefix []byte
-			if level.Cmp(server.DecimalNonProfit) == 0 {
+			if level.Cmp(scanner.DecimalNonProfit) == 0 {
 				prefix = dbm.LiquidationNonProfitPrefix
 			} else {
-				if level.Cmp(server.Decimal1P0) != 1 {
+				if level.Cmp(scanner.Decimal1P0) != 1 {
 					prefix = dbm.LiquidationBelow1P0Prefix
-				} else if level.Cmp(server.Decimal1P1) != 1 {
+				} else if level.Cmp(scanner.Decimal1P1) != 1 {
 					prefix = dbm.LiquidationBelow1P1Prefix
-				} else if level.Cmp(server.Decimal1P5) != 1 {
+				} else if level.Cmp(scanner.Decimal1P5) != 1 {
 					prefix = dbm.LiquidationBelow1P5Prefix
-				} else if level.Cmp(server.Decimal2P0) != 1 {
+				} else if level.Cmp(scanner.Decimal2P0) != 1 {
 					prefix = dbm.LiquidationBelow2P0Prefix
 				} else {
 					prefix = dbm.LiquidationAbove2P0Prefix

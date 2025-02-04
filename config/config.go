@@ -7,15 +7,12 @@ import (
 
 type Config struct {
 	RpcUrl        string `yaml:"rpc_url"`
-	Network       string `yaml:"network"`
-	Oracle        string `yaml:"oracle"`
 	Comptroller   string `yaml:"comptroller"`
 	VaiController string `yaml:"vai_controller"`
+	Oracle        string `yaml:"oracle"`
+	WBTCFeeder    string `yaml:"wbtc_feeder"`
+	WETHFeeder    string `yaml:"weth_feeder"`
 	Vai           string `yaml:"vai"`
-	WBTC          string `yaml:"wbtc"`
-	WETH          string `yaml:"weth"`
-	VBNB          string `yaml:"vbnb"`
-	WBNB          string `yaml:"wbnb"`
 	PrivateKey    string `yaml:"private_key"`
 	DB            string `yaml:"db"`
 	StartHeight   uint64 `yaml:"start_height"`

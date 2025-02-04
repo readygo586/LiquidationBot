@@ -4,7 +4,6 @@ go 1.22.3
 
 require (
 	github.com/ethereum/go-ethereum v1.14.12
-	github.com/readygo67/LiquidationBot v0.0.0-20220310075602-c562c7c56fb0
 	github.com/shopspring/decimal v1.4.0
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.10.0

@@ -103,17 +103,18 @@ type Scanner struct {
 	comptroller       *venus.Comptroller
 	vaiController     *venus.VaiController
 	vai               *venus.Vai
-	oracle            *venus.PriceOracle
+	oracle            *venus.Oracle
+	feeders           []common.Address
 	closeFactor       *CloseFactor
 
 	//token info
-	markets []common.Address
-	tokens  map[common.Address]*TokenInfo
-	prices  map[common.Address]*TokenPrice
-	vbep20s map[common.Address]*venus.Vbep20
+	markets   []common.Address
+	tokens    map[common.Address]*TokenInfo
+	prices    map[common.Address]*TokenPrice
+	vbep20s   map[common.Address]*venus.Vbep20
+	feederMap map[common.Address]common.Address //feeder ->market map,
 
 	//self privateKey and address
-	liquidator *venus.IQingsuan
 	PrivateKey *ecdsa.PrivateKey
 	Account    common.Address
 	vaiBalance decimal.Decimal
@@ -163,10 +164,6 @@ func NewScanner(
 	_oracle string,
 	_privateKey string,
 ) *Scanner {
-	exist, _ := db.Has(dbm.BorrowerNumberKey(), nil)
-	if !exist {
-		db.Put(dbm.BorrowerNumberKey(), big.NewInt(0).Bytes(), nil)
-	}
 
 	comptroller, err := venus.NewComptroller(common.HexToAddress(_comptroller), c)
 	if err != nil {
@@ -183,7 +180,7 @@ func NewScanner(
 		panic(err)
 	}
 
-	oracle, err := venus.NewPriceOracle(common.HexToAddress(_oracle), c)
+	oracle, err := venus.NewOracle(common.HexToAddress(_oracle), c)
 	if err != nil {
 		panic(err)
 	}
@@ -204,7 +201,18 @@ func NewScanner(
 		panic(err)
 	}
 
-	//collect all markets information in parrallel
+	var feeders []common.Address
+	feedersMap := make(map[common.Address]common.Address)
+	for _, market := range markets {
+		feeder, err := oracle.Feeder(nil, market)
+		if err != nil {
+			panic(err)
+		}
+		feeders = append(feeders, feeder)
+		feedersMap[feeder] = market
+	}
+
+	//collect all markets information in parallel
 	tokens := make(map[common.Address]*TokenInfo)
 	prices := make(map[common.Address]*TokenPrice)
 	vbep20s := make(map[common.Address]*venus.Vbep20)
@@ -279,16 +287,6 @@ func NewScanner(
 		UpdatedHeight: height,
 	}
 
-	_vaiBalance, err := vai.BalanceOf(nil, account)
-	if err != nil {
-		panic(err)
-	}
-	vaiBalance := decimal.NewFromBigInt(_vaiBalance, 0)
-	//_vaiLoan, err := vaiController.GetVAIRepayAmount(nil, account)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//logger.Printf("vaiBalance:%v, vaiLoan:%v\n", _vaiBalance, _vaiLoan)
 	return &Scanner{
 		c:  c,
 		db: db,
@@ -296,21 +294,21 @@ func NewScanner(
 		comptrollerAddr:   common.HexToAddress(_comptroller),
 		vaiControllerAddr: common.HexToAddress(_vaiController),
 		oracleAddr:        common.HexToAddress(_oracle),
+		feeders:           feeders,
 		comptroller:       comptroller,
 		vaiController:     vaiController,
 		vai:               vai,
 		oracle:            oracle,
 		closeFactor:       closeFactor,
 
-		markets: markets,
-		tokens:  tokens,
-		prices:  prices,
-		vbep20s: vbep20s,
+		markets:   markets,
+		tokens:    tokens,
+		prices:    prices,
+		vbep20s:   vbep20s,
+		feederMap: feedersMap,
 
-		liquidator: nil,
 		PrivateKey: privateKey,
 		Account:    account,
-		vaiBalance: vaiBalance,
 
 		m:      m,
 		quitCh: make(chan struct{}),
@@ -336,9 +334,9 @@ func NewScanner(
 }
 
 func (s *Scanner) Start() {
-	logger.Printf("server start")
+	logger.Printf("scanner start")
 
-	s.wg.Add(11)
+	s.wg.Add(13)
 	go s.ScanLoop()
 
 	//event processors
@@ -353,6 +351,8 @@ func (s *Scanner) Start() {
 
 	//sync account
 	go s.SyncAccountLoop()
+	go s.SyncAccountsBelow1P0Loop()
+	go s.SyncAccountsBackgroundLoop()
 
 	//liquidation
 	go s.LiquidationLoop()
@@ -398,7 +398,7 @@ func (s *Scanner) ScanLoop() {
 				continue
 			}
 
-			query1 := buildQueryWithoutHeight(s.comptrollerAddr, s.vaiControllerAddr, s.oracleAddr)
+			query1 := buildQueryWithoutHeight(s.comptrollerAddr, s.vaiControllerAddr, s.feeders)
 			query2 := buildVTokenQueryWithoutHeight(s.markets)
 
 			for height := startHeight; height < endHeight; height++ {
@@ -708,7 +708,7 @@ func (s *Scanner) ScanBlockBySpan(from, to int64, querys []ethereum.FilterQuery)
 	return nil
 }
 
-func newMarket(c *ethclient.Client, comptroller *venus.Comptroller, oracle *venus.PriceOracle, market common.Address) (*TokenInfo, *TokenPrice, error) {
+func newMarket(c *ethclient.Client, comptroller *venus.Comptroller, oracle *venus.Oracle, market common.Address) (*TokenInfo, *TokenPrice, error) {
 	vbep20, err := venus.NewVbep20(market, c) //vBep20
 	if err != nil {
 		return nil, nil, err
